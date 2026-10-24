@@ -966,114 +966,133 @@
         }
 
 
-function parseGoogleAFInitData(html) {
-    const turns = [];
-    try {
-        // 1. Locate the massive script block
-        const scripts = html.split(/<script/i);
-        let dataBlock = '';
-        for (let s of scripts) {
-            if (s.includes('AF_initDataCallback') && s.length > 10000) {
-                dataBlock = s;
-                break;
-            }
-        }
-
-        if (!dataBlock) throw new Error("No massive data block found. Google may have blocked the proxy.");
-
-        // 2. Locate the exact start of the JSON array dynamically
-        // Fixes the bug where Google uses `data: function(){ return [` instead of `data:[`
-        let startIndex = dataBlock.indexOf('data:');
-        if (startIndex !== -1) {
-            startIndex = dataBlock.indexOf('[', startIndex);
-        }
-        if (startIndex === -1) throw new Error("Could not find data array start ('[' after 'data:').");
-
-        // 3. Lexical Scanner: Extracts the array AND fixes Google's invalid JSON [1,,2] syntax safely
-        let bracketCount = 0;
-        let endIndex = -1;
-        let inString = false;
-        let escapeNext = false;
-        let cleanJson = "";
-
-        for (let i = startIndex; i < dataBlock.length; i++) {
-            const char = dataBlock[i];
-            
-            if (escapeNext) { cleanJson += char; escapeNext = false; continue; }
-            if (char === '\\') { cleanJson += char; escapeNext = true; continue; }
-            if (char === '"') { inString = !inString; cleanJson += char; continue; }
-            
-            if (!inString) {
-                if (char === '[') bracketCount++;
-                if (char === ']') bracketCount--;
+        function parseGoogleAFInitData(html) {
+            const turns = [];
+            try {
+                // 1. Locate the script block dynamically
+                const scripts = html.split(/<script/i);
+                let dataBlock = '';
+                let maxLength = 0;
                 
-                if (char === ',') {
-                    cleanJson += char;
-                    // Peek ahead to fix empty array slots [,,] -> [,null,] without corrupting strings
-                    let nextIdx = i + 1;
-                    while (nextIdx < dataBlock.length && /\s/.test(dataBlock[nextIdx])) nextIdx++;
-                    if (dataBlock[nextIdx] === ',' || dataBlock[nextIdx] === ']') {
-                        cleanJson += 'null';
+                // Find the LARGEST script containing AF_initDataCallback
+                // This safely bypasses arbitrary length limits for short chats
+                for (let s of scripts) {
+                    if (s.includes('AF_initDataCallback') && s.length > maxLength) {
+                        maxLength = s.length;
+                        dataBlock = s;
                     }
+                }
+
+                if (!dataBlock) {
+                    throw new Error("Could not find AF_initDataCallback in the HTML.");
+                }
+
+                // 2. Locate the exact start of the JSON array
+                let startIndex = dataBlock.indexOf('data:');
+                if (startIndex !== -1) {
+                    startIndex = dataBlock.indexOf('[', startIndex);
+                }
+                if (startIndex === -1) throw new Error("Could not find data array start ('[' after 'data:').");
+
+                // 3. Lexical Scanner: Extracts array & fixes [1,,2] syntax -> [1,null,2] safely
+                let bracketCount = 0;
+                let endIndex = -1;
+                let inString = false;
+                let escapeNext = false;
+                let cleanJson = "";
+
+                for (let i = startIndex; i < dataBlock.length; i++) {
+                    const char = dataBlock[i];
+                    
+                    if (escapeNext) { cleanJson += char; escapeNext = false; continue; }
+                    if (char === '\\') { cleanJson += char; escapeNext = true; continue; }
+                    if (char === '"') { inString = !inString; cleanJson += char; continue; }
+                    
+                    if (!inString) {
+                        if (char === '[') bracketCount++;
+                        if (char === ']') bracketCount--;
+                        
+                        if (char === ',') {
+                            cleanJson += char;
+                            // Peek ahead to fix empty array slots [,,] -> [,null,]
+                            let nextIdx = i + 1;
+                            while (nextIdx < dataBlock.length && /\s/.test(dataBlock[nextIdx])) nextIdx++;
+                            if (dataBlock[nextIdx] === ',' || dataBlock[nextIdx] === ']') {
+                                cleanJson += 'null';
+                            }
+                        } else {
+                            cleanJson += char;
+                        }
+
+                        if (bracketCount === 0) {
+                            endIndex = i;
+                            break;
+                        }
+                    } else {
+                        cleanJson += char;
+                    }
+                }
+
+                if (endIndex === -1) throw new Error("Could not find end of JSON array ']'");
+
+                // 4. Parse the cleaned JSON
+                const parsedData = JSON.parse(cleanJson);
+
+                // 5. Recursively sweep the object for prompt/response texts
+                const rawTexts = [];
+                function extractText(obj) {
+                    if (typeof obj === 'string') {
+                        // Filter out short strings, URLs, SVG paths, and UI artifacts
+                        if (
+                            obj.length > 15 && 
+                            !obj.startsWith('http') && 
+                            !obj.includes('gstatic.com') && 
+                            !obj.includes('style=') &&
+                            !obj.includes('<path d=') && 
+                            !obj.includes('AF_initDataCallback')
+                        ) {
+                            rawTexts.push(obj);
+                        }
+                    } else if (Array.isArray(obj)) {
+                        obj.forEach(extractText);
+                    }
+                }
+                
+                extractText(parsedData);
+
+                // 6. Clean and pair the extracted texts
+                const uniqueTexts = [...new Set(rawTexts)];
+                
+                // Advanced Blacklist for Gemini UI elements
+                const blacklist = [
+                    " ventajas y desventajas", "instant noodles", "Ireland trip", "Google LLC",
+                    "Learn more", "Privacy Policy", "Terms of Service", "Send feedback",
+                    "Updates", "Help", "Opens in a new window"
+                ];
+                
+                const validChats = uniqueTexts.filter(text => {
+                    for (let b of blacklist) if (text.includes(b)) return false;
+                    return true;
+                });
+
+                // Format into alternating User/Gemini turns
+                if (validChats.length >= 2) {
+                    for (let i = 0; i < validChats.length - 1; i += 2) {
+                        turns.push({ question: validChats[i], answer: validChats[i+1] });
+                    }
+                } else if (validChats.length === 1) {
+                    turns.push({ question: "Extracted Document", answer: validChats[0] });
                 } else {
-                    cleanJson += char;
+                    throw new Error("Found JSON block, but extracted 0 chat strings. Chat may be heavily formatted or too short.");
                 }
 
-                if (bracketCount === 0) {
-                    endIndex = i;
-                    break;
-                }
-            } else {
-                cleanJson += char;
+            } catch (e) {
+                console.error("Lexical Parser Failed:", e);
+                if (typeof logDebug === 'function') logDebug(`Parser Exception: ${e.message}`, 'error');
             }
+            
+            return turns;
         }
-
-        if (endIndex === -1) throw new Error("Could not find end of JSON array ']'");
-
-        // 4. Parse the cleaned, valid JSON
-        const parsedData = JSON.parse(cleanJson);
-
-        // 5. Recursively sweep the object for prompt/response texts
-        const rawTexts = [];
-        function extractText(obj) {
-            if (typeof obj === 'string') {
-                // Lowered to >10 to catch short prompts like "Fix this code"
-                if (obj.length > 10 && !obj.startsWith('http') && !obj.includes('gstatic.com') && !obj.includes('style=')) {
-                    rawTexts.push(obj);
-                }
-            } else if (Array.isArray(obj)) {
-                obj.forEach(extractText);
-            }
-        }
-        
-        extractText(parsedData);
-
-        // 6. Clean and pair the extracted texts
-        const uniqueTexts = [...new Set(rawTexts)];
-        const blacklist = [" ventajas y desventajas", "instant noodles", "Ireland trip", "Google LLC"];
-        
-        const validChats = uniqueTexts.filter(text => {
-            for (let b of blacklist) if (text.includes(b)) return false;
-            return true;
-        });
-
-        // Format into alternating User/Gemini turns
-        if (validChats.length >= 2) {
-            for (let i = 0; i < validChats.length - 1; i += 2) {
-                turns.push({ question: validChats[i], answer: validChats[i+1] });
-            }
-        } else if (validChats.length === 1) {
-            turns.push({ question: "Extracted Document", answer: validChats[0] });
-        }
-
-    } catch (e) {
-        console.error("Lexical Parser Failed:", e);
-        // This will print the actual crash reason directly into your UI's debugger
-        if (typeof logDebug === 'function') logDebug(`Parser Exception: ${e.message}`, 'error');
-    }
-    
-    return turns;
-    }
         
 
         // ================================================================================
