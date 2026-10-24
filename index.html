@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!--   🪄  FORCES  DESKTOP  VIEW  ON  ALL  DEVICES   🪄 -->
+    <meta name="viewport" content="width=1280">
+    <title>Gemini Chat Extractor & Ultra-Smooth Splitter | AaRAv</title>
+
+    <style>
+        @import url('[https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap](https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap)');
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: #0d1117;
+            font-family: 'Montserrat', sans-serif;
+            margin: 0;
+            overflow-x: hidden;
+            color: #c9d1d9;
+        }
+
+        /*   <---   GPU-FRIENDLY  STATIC  AMBIENT  GLOWS  (ZERO  REPAINT  LAG)   --->   */
+        .ambient-bg {
+            position: fixed; inset: 0; pointer-events: none; z-index: 0;
+            background:
+                radial-gradient(circle at 10% 10%, rgba(35, 134, 54, 0.14) 0%, transparent 40%),
+                radial-gradient(circle at 90% 85%, rgba(88, 166, 255, 0.12) 0%, transparent 45%),
+                radial-gradient(circle at 50% 50%, rgba(201, 162, 85, 0.05) 0%, transparent 50%);
+        }
+
+        /*   <---   STATUS  MODAL   --->   */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 8, 13, 0.88);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 1000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+
+        .status-box {
+            background: #121720; border: 1px solid rgba(88, 166, 255, 0.3);
+            padding: 36px; border-radius: 16px; text-align: center; width: 420px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.65), 0 0 30px rgba(88, 166, 255, 0.18);
+        }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(88, 166, 255, 0.2); border-top: 3px solid #58a6ff;
+            border-radius: 50%; margin: 0 auto 22px auto;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .status-text {
+            font-family: 'JetBrains Mono', monospace; font-size: 14px;
+            color: #79c0ff; min-height: 22px; white-space: pre-wrap;
+        }
+
+        /*   ============================================================
+                        🪄   MASTER  SPLITTER  &  EXTRACTOR  UI   🪄
+             ============================================================   */
+        #splitter-master-wrapper {
+            position: relative; width: 100%; min-height: 100vh;
+            z-index: 10; padding: 35px 20px 60px 20px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        /*   Top  Navigation  &  Action  Bar   */
+        .top-action-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            width: 100%; max-width: 1220px; gap: 15px; flex-wrap: wrap;
+        }
+
+        .brand-badge {
+            background: rgba(22, 27, 34, 0.9); color: #c9a255;
+            border: 1px solid rgba(201, 162, 85, 0.45);
+            padding: 11px 22px; border-radius: 8px;
+            font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 700;
+            letter-spacing: 1.5px; white-space: pre;
+            box-shadow: 0 0 20px rgba(201, 162, 85, 0.12);
+        }
+
+        .top-btn-group {
+            display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+        }
+
+        .nav-btn {
+            background: rgba(22, 27, 34, 0.85); color: #8b949e; border: 1px solid rgba(139, 148, 158, 0.4);
+            padding: 11px 18px; border-radius: 8px; cursor: pointer; transition: 0.25s;
+            font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 600;
+            letter-spacing: 1px; white-space: pre;
+        }
+        .nav-btn:hover { color: #fff; border-color: #fff; background: rgba(255,255,255,0.08); }
+
+        .load-file-btn {
+            background: rgba(88, 166, 255, 0.14); color: #58a6ff; border: 1px solid #58a6ff;
+            padding: 11px 24px; border-radius: 8px; cursor: pointer; transition: 0.25s;
+            font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 600;
+            letter-spacing: 1px; white-space: pre;
+        }
+        .load-file-btn:hover { background: rgba(88, 166, 255, 0.28); box-shadow: 0 0 15px rgba(88, 166, 255, 0.35); color: #fff; }
+
+        /*   Main  Glass  Panel   (Optimized  Solid-Tint  Surface  For  60FPS  Scrolling)   */
+        .splitter-panel {
+            width: 100%; max-width: 1220px;
+            background: #12171f;
+            border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;
+            box-shadow: 0 20px 45px rgba(0,0,0,0.55); padding: 28px;
+            display: flex; flex-direction: column; gap: 22px; margin-top: 22px;
+        }
+
+        /*   Gemini  Link  Extractor  Bar   */
+        .link-extractor-bar {
+            display: flex; gap: 14px; width: 100%; align-items: center;
+        }
+        .url-input-box {
+            flex: 1; background: #090c10; border: 1px solid rgba(88, 166, 255, 0.35);
+            color: #e6edf3; padding: 14px 18px; border-radius: 10px;
+            font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none;
+            transition: 0.25s;
+        }
+        .url-input-box:focus {
+            border-color: #58a6ff; box-shadow: 0 0 16px rgba(88, 166, 255, 0.22);
+        }
+        .url-input-box::placeholder { color: #6e7681; }
+
+        .fetch-link-btn {
+            background: linear-gradient(135deg, rgba(88, 166, 255, 0.2), rgba(46, 160, 67, 0.2));
+            color: #7ee787; border: 1px solid #7ee787;
+            padding: 14px 26px; border-radius: 10px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 700;
+            letter-spacing: 1px; white-space: pre; transition: 0.25s;
+        }
+        .fetch-link-btn:hover {
+            background: rgba(46, 160, 67, 0.32); color: #fff;
+            box-shadow: 0 0 18px rgba(126, 231, 135, 0.35);
+        }
+
+        /*   Spacing  Rules  Legend  Bar   */
+        .rules-status-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(9, 12, 16, 0.75); border: 1px solid rgba(255,255,255,0.06);
+            padding: 10px 16px; border-radius: 8px; font-size: 12px; color: #8b949e;
+            flex-wrap: wrap; gap: 10px;
+        }
+        .rule-pill {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: rgba(255,255,255,0.04); padding: 4px 10px; border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #a5d6ff;
+            border: 1px solid rgba(165, 214, 255, 0.15);
+        }
+
+        /*   ============================================================
+                 🪄  ULTRA-SMOOTH  VIRTUALIZED  VIEWPORT  (30K+ LINES)  🪄
+             ============================================================   */
+        .textarea-container {
+            width: 100%; height: 56vh; min-height: 460px;
+            background: #090d13; border: 1px solid rgba(88, 166, 255, 0.18);
+            border-radius: 12px; position: relative; overflow: hidden;
+            touch-action: pan-y pan-x;
+            contain: strict;
+        }
+
+        #virtual-scroller {
+            width: 100%; height: 100%;
+            overflow: auto; position: relative;
+            will-change: scroll-position;
+            overscroll-behavior: contain;
+        }
+        #virtual-scroller::-webkit-scrollbar { width: 12px; height: 12px; }
+        #virtual-scroller::-webkit-scrollbar-track { background: #06090e; }
+        #virtual-scroller::-webkit-scrollbar-thumb {
+            background: rgba(88, 166, 255, 0.38); border-radius: 6px;
+            border: 2px solid #06090e;
+        }
+        #virtual-scroller::-webkit-scrollbar-thumb:hover { background: rgba(88, 166, 255, 0.65); }
+
+        #virtual-phantom {
+            width: 100%; pointer-events: none;
+        }
+
+        #virtual-rows-layer {
+            position: absolute; top: 0; left: 0; min-width: 100%;
+            will-change: transform;
+        }
+
+        /*   Individual  Virtualized  Row   */
+        .v-row {
+            display: flex; align-items: center; width: 100%;
+            font-family: 'JetBrains Mono', monospace;
+            white-space: pre;
+            border-bottom: 1px solid transparent;
+        }
+        .v-row:hover { background: rgba(88, 166, 255, 0.04); }
+
+        /*   GitHub  Line  Number  Gutter   */
+        .v-gutter {
+            width: 68px; min-width: 68px; height: 100%;
+            display: inline-flex; align-items: center; justify-content: flex-end;
+            padding-right: 14px;
+            background: #06090f; color: #6e7681;
+            border-right: 1px solid rgba(255,255,255,0.07);
+            user-select: none; -webkit-user-select: none;
+            font-size: 0.9em;
+            position: sticky; left: 0; z-index: 3;
+        }
+
+        /*   Line  Content  Cell   */
+        .v-content {
+            flex: 1; height: 100%;
+            display: inline-flex; align-items: center;
+            padding: 0 20px;
+            color: #c9d1d9;
+            position: relative;
+        }
+
+        /*   ============================================================
+                 🎨  COLORED  RESPONSE,  VERTICAL  STEPS  &  CODE  BLOCKS
+             ============================================================   */
+        /* 1. Question Rows */
+        .v-row.type-question {
+            background: rgba(201, 162, 85, 0.09);
+        }
+        .v-row.type-question .v-gutter {
+            color: #e3b341; border-right-color: rgba(227, 179, 65, 0.35);
+        }
+        .v-row.type-question .v-content {
+            color: #ffd866; font-weight: 600;
+        }
+
+        /* 2. Heading Rows */
+        .v-row.type-heading .v-content {
+            color: #79c0ff; font-weight: 700;
+        }
+
+        /* 3. Normal Colored Response Rows */
+        .v-row.type-normal .v-content {
+            color: #a5d6ff;
+        }
+
+        /* 4. Bullet Point Rows */
+        .v-row.type-bullet .v-content {
+            color: #7ee787;
+        }
+
+        /* 5. Connected Vertical-Line Step Rows */
+        .v-row.type-step-start .v-content,
+        .v-row.type-step-body .v-content {
+            padding-left: 42px;
+            color: #d2a8ff;
+        }
+        /* The Vertical Line Spine */
+        .step-spine {
+            position: absolute; left: 18px; top: 0; bottom: 0;
+            width: 2px; background: linear-gradient(180deg, #bc8cff, #58a6ff);
+            box-shadow: 0 0 8px rgba(188, 140, 255, 0.6);
+        }
+        /* The Glowing Step Node Circle */
+        .step-dot {
+            position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #0d1117; border: 2.5px solid #bc8cff;
+            box-shadow: 0 0 10px #bc8cff; z-index: 2;
+        }
+
+        /* 6. Copiable Block Rows */
+        .v-row.type-code-header {
+            background: rgba(88, 166, 255, 0.14);
+            border-top: 1px solid rgba(88, 166, 255, 0.35);
+        }
+        .v-row.type-code-line {
+            background: rgba(1, 4, 9, 0.85);
+        }
+        .v-row.type-code-line .v-gutter {
+            background: #04060a; color: #58a6ff;
+            border-right: 2px solid #58a6ff;
+        }
+        .v-row.type-code-line .v-content {
+            color: #7ee787;
+        }
+        .v-row.type-code-footer {
+            background: rgba(88, 166, 255, 0.08);
+            border-bottom: 1px solid rgba(88, 166, 255, 0.35);
+        }
+
+        .inline-copy-btn {
+            background: rgba(88, 166, 255, 0.2); color: #fff;
+            border: 1px solid #58a6ff; border-radius: 5px;
+            padding: 2px 10px; margin-left: 14px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600;
+            transition: 0.2s;
+        }
+        .inline-copy-btn:hover {
+            background: #58a6ff; color: #090d13; box-shadow: 0 0 10px rgba(88, 166, 255, 0.5);
+        }
+
+        /* 7. Explicit Row Gaps (2-Row & 4-Row Indicators on Hover) */
+        .v-row.type-gap .v-content {
+            color: rgba(110, 118, 129, 0.28); font-style: italic; font-size: 0.8em;
+            user-select: none;
+        }
+
+        /* Inline Rich Text Spans */
+        .tok-bold { color: #ffa657; font-weight: 700; }
+        .tok-code {
+            background: rgba(255, 123, 114, 0.14); color: #ff7b72;
+            padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.25);
+        }
+        .tok-bullet { color: #58a6ff; font-weight: 700; }
+        .tok-step-num { color: #f2cc60; font-weight: 700; }
+        .tok-quote { color: #e3b341; font-style: italic; border-left: 3px solid #e3b341; padding-left: 10px; }
+
+        /*   Raw / Paste  Modal  Box   */
+        .paste-drawer {
+            display: none; flex-direction: column; gap: 12px;
+            background: #090d13; border: 1px solid rgba(201, 162, 85, 0.4);
+            padding: 18px; border-radius: 12px;
+        }
+        .paste-drawer.open { display: flex; }
+        .paste-area {
+            width: 100%; height: 180px; background: #05080c; color: #e6edf3;
+            border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+            padding: 14px; font-family: 'JetBrains Mono', monospace; font-size: 13px;
+            resize: vertical; outline: none;
+        }
+
+        /*   ============================================================
+                 🪄  TOTAL  LINES  &  SINGLE / MULTI-FILE  CONTROLS  🪄
+             ============================================================   */
+        .total-lines-wrapper {
+            display: flex; justify-content: center; align-items: center; gap: 18px;
+            margin: 18px 0 10px 0; flex-wrap: wrap;
+        }
+        .input-btn-combo {
+            display: flex; background: rgba(0,0,0,0.45); border: 1px solid rgba(88, 166, 255, 0.32);
+            border-radius: 8px; overflow: hidden; transition: 0.25s;
+        }
+        .input-btn-combo:focus-within { border-color: #58a6ff; box-shadow: 0 0 15px rgba(88, 166, 255, 0.2); }
+
+        .readonly-combo {
+            background: rgba(0,0,0,0.45); border-color: rgba(255,255,255,0.12); cursor: default;
+        }
+        .readonly-combo .combo-input { color: #a5d6ff; font-weight: 700; pointer-events: none; width: 120px; }
+        .readonly-btn {
+            background: rgba(255,255,255,0.05); color: #8b949e;
+            border-left: 1px solid rgba(255,255,255,0.1); pointer-events: none;
+        }
+
+        .combo-input {
+            background: transparent; border: none; color: #fff; padding: 12px 14px;
+            font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 600;
+            outline: none; width: 125px; text-align: center;
+        }
+        .combo-input::placeholder { color: #8b949e; font-weight: 400; }
+        .combo-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+        .combo-btn {
+            background: rgba(88, 166, 255, 0.12); color: #58a6ff; border: none;
+            border-left: 1px solid rgba(88, 166, 255, 0.3);
+            padding: 12px 18px; font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 13px;
+            cursor: pointer; transition: 0.25s; letter-spacing: 0.5px; white-space: pre;
+        }
+        .combo-btn:hover { background: rgba(88, 166, 255, 0.3); color: #fff; }
+
+        .control-row {
+            display: flex; gap: 16px; flex-wrap: wrap; justify-content: space-between; align-items: center;
+        }
+
+        .action-btn-main {
+            background: rgba(46, 160, 67, 0.16); color: #7ee787; border: 1px solid #7ee787;
+            padding: 12px 32px; font-family: 'Montserrat', sans-serif; font-weight: 600; font-size: 13.5px;
+            border-radius: 8px; cursor: pointer; transition: 0.25s; letter-spacing: 1px; white-space: pre;
+        }
+        .action-btn-main:hover {
+            background: rgba(46, 160, 67, 0.32); box-shadow: 0 0 20px rgba(46, 160, 67, 0.4); color: #fff;
+        }
+
+        /* Dynamic Splitting Configuration Area */
+        .dynamic-list {
+            display: flex; flex-direction: column; gap: 12px;
+            max-height: 320px; overflow-y: auto; padding-right: 8px;
+        }
+        .dynamic-list::-webkit-scrollbar { width: 6px; }
+        .dynamic-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+        .split-file-btn {
+            background: rgba(255, 255, 255, 0.04); border: 1px dashed rgba(255,255,255,0.28); color: #c9d1d9;
+            padding: 14px 18px; border-radius: 8px; font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 600;
+            cursor: pointer; transition: 0.25s; text-align: left; letter-spacing: 1px; width: 100%; white-space: pre;
+        }
+        .split-file-btn:hover { background: rgba(88, 166, 255, 0.12); border-color: #58a6ff; color: #fff; }
+
+        .split-inputs-row { display: flex; gap: 14px; width: 100%; align-items: center; }
+        .split-text-input {
+            flex: 1; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.16); color: #fff;
+            padding: 14px; border-radius: 8px; font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 600;
+            outline: none; transition: 0.25s;
+        }
+        .split-text-input:focus { border-color: #a5d6ff; box-shadow: 0 0 10px rgba(165, 214, 255, 0.2); }
+        .split-text-input::placeholder { font-weight: 400; color: #8b949e; }
+    </style>
+</head>
+<body>
+
+    <div class="ambient-bg"></div>
+
+    <!--   STATUS  POP-UP  MODAL   -->
+    <div class="modal-overlay" id="status-modal">
+        <div class="status-box">
+            <div class="spinner"></div>
+            <div class="status-text" id="status-message">Initialising  Extractor   🪄  .....</div>
+        </div>
+    </div>
+
+    <!--   MASTER  EXTRACTOR  &  TEXT  SPLITTER  WRAPPER   -->
+    <div id="splitter-master-wrapper">
+
+        <!-- Top Bar -->
+        <div class="top-action-bar">
+            <div class="brand-badge">🪄   GEMINI  CHAT  VIEWER  &  SPLITTER  |  AaRAv</div>
+
+            <div class="top-btn-group">
+                <button class="nav-btn" onclick="togglePasteDrawer()">📋   Paste  Chat / Text</button>
+                <button class="nav-btn" style="border-color:#c9a255; color:#c9a255;" onclick="loadStressTest30k()">⚡   Test  30,000  Lines</button>
+                <button class="nav-btn" style="border-color:#7ee787; color:#7ee787;" onclick="copyEntireDocument()">📑   Copy  All  Text</button>
+                <input type="file" id="hidden-file-input" style="display: none;" accept="*/*" onchange="loadUserTextFile(event)">
+                <button class="load-file-btn" onclick="document.getElementById('hidden-file-input').click()">📂   Load  Any  File</button>
+            </div>
+        </div>
+
+        <div class="splitter-panel">
+
+            <!--   1.  GEMINI  SHARE  LINK  INPUT  BAR   -->
+            <div class="link-extractor-bar">
+                <input type="text" id="gemini-url-input" class="url-input-box"
+                    placeholder="🔗   Paste  Any  Gemini  Share  Link   ( e.g.  [https://gemini.google.com/share/](https://gemini.google.com/share/)...  or  [https://g.co/gemini/share/](https://g.co/gemini/share/)... )">
+                <button class="fetch-link-btn" onclick="extractFromGeminiLink()">🪄   Extract  &  Format  Chat</button>
+            </div>
+
+            <!--   Collapsible  Direct  Paste  Drawer   -->
+            <div class="paste-drawer" id="paste-drawer">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:12px; color:#c9a255; font-weight:600; letter-spacing:1px;">✨   PASTE  RAW  GEMINI  CHAT  OR  CODE  BELOW   ( AUTO-FORMATS  2-ROW  &  4-ROW  GAPS )</span>
+                    <div style="display:flex; gap:10px;">
+                        <button class="combo-btn" style="border:1px solid #58a6ff; border-radius:6px; padding:6px 14px;" onclick="applyPastedText(true)">🪄   Format  As  Gemini  Chat</button>
+                        <button class="combo-btn" style="border:1px solid #8b949e; color:#c9d1d9; border-radius:6px; padding:6px 14px;" onclick="applyPastedText(false)">📄   Keep  Exact  Raw  Lines</button>
+                    </div>
+                </div>
+                <textarea id="raw-paste-input" class="paste-area" placeholder="Paste your chat text here... Use 'User:' or 'Question:' for questions and 'Gemini:' or 'Response:' for answers, or just paste markdown directly!"></textarea>
+            </div>
+
+            <!--   Spacing  &  Visual  Status  Bar   -->
+            <div class="rules-status-bar">
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <span class="rule-pill">↕️  Q → Response : 2 Rows Gap</span>
+                    <span class="rule-pill">↕️  Response → Next Q : 4 Rows Gap</span>
+                    <span class="rule-pill">📋  Copiable Block : 2 Rows Above & Below</span>
+                    <span class="rule-pill">🟣  Vertical Line Steps  +  Colored Text</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Zoom: 14px  (Ctrl + Scroll or Pinch)</span>
+                </div>
+            </div>
+
+            <!--   2.  ULTRA-SMOOTH  VIRTUALIZED  CODE / CHAT  VIEWPORT   -->
+            <div class="textarea-container" id="editor-container">
+                <div id="virtual-scroller">
+                    <div id="virtual-phantom"></div>
+                    <div id="virtual-rows-layer"></div>
+                </div>
+            </div>
+
+            <!--   3.  TOTAL  LINES  +  1-CLICK  SINGLE  FILE  SAVE  BAR   -->
+            <div class="total-lines-wrapper">
+                <!-- Total Lines Indicator -->
+                <div class="input-btn-combo readonly-combo">
+                    <input type="text" id="total-lines-count" class="combo-input" value="1" readonly>
+                    <div class="combo-btn readonly-btn">🗞️   Total  Lines</div>
+                </div>
+
+                <!-- 1-Click Save Entire Chat In Any Extension -->
+                <div class="input-btn-combo" style="border-color: rgba(126, 231, 135, 0.45);">
+                    <input type="text" id="single-file-name" class="combo-input" style="width: 220px;" value="gemini_chat.txt" placeholder="filename.ext">
+                    <button class="combo-btn" style="color:#7ee787; background:rgba(46,160,67,0.18); border-left-color:rgba(126,231,135,0.45);" onclick="downloadSingleFullFile()">💾   Save  In  1  File  (Any Ext)</button>
+                </div>
+            </div>
+
+            <!--   4.  LINE  JUMP  &  MULTI-FILE  SPLITTER  CONTROLS   -->
+            <div class="control-row">
+
+                <!-- Jump To Line -->
+                <div class="input-btn-combo">
+                    <input type="number" id="jump-input" class="combo-input" placeholder="Line  No.">
+                    <button class="combo-btn" onclick="jumpToSpecificLine()">🪄   Jump  To  Line</button>
+                </div>
+
+                <!-- Split Count + Auto-Divide -->
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                    <div class="input-btn-combo">
+                        <input type="number" id="split-count-input" class="combo-input" placeholder="File  Count">
+                        <button class="combo-btn" onclick="generateSplitFileButtons(false)">🪶   Enter  Split  Files  Count</button>
+                    </div>
+                    <input type="text" id="auto-ext-input" class="combo-input" style="width:90px; background:rgba(0,0,0,0.45); border:1px solid rgba(201,162,85,0.4); border-radius:8px;" value=".txt" title="Extension for Auto-Split">
+                    <button class="nav-btn" style="border-color:#c9a255; color:#c9a255; padding:12px 16px;" onclick="generateSplitFileButtons(true)">⚡   Auto-Fill  Equal  Line  Splits</button>
+                </div>
+
+                <!-- Download All Split Files in 1 Click -->
+                <button class="action-btn-main" onclick="downloadAllSplittedFiles()">🗞️   Download</button>
+
+            </div>
+
+            <!--   5.  DYNAMIC  SPLIT  FILE  ROWS   -->
+            <div class="dynamic-list" id="dynamic-configs-container"></div>
+
+        </div>
+    </div>
+
+    <script>
+        // ================================================================================
+        //      🪄  1.  GLOBAL  DATA  MODEL  &  VIRTUAL  SCROLLER  STATE  (60FPS)  🪄
+        // ================================================================================
+        let VIRTUAL_LINES = [];        // Array of { raw, html, type, blockId, gapLabel }
+        let CODE_BLOCKS_MAP = {};      // blockId -> raw code string for 1-click copy
+        let fontSize = 14;
+        let rowHeight = 24;            // Dynamically scales with fontSize
+        const OVERSCAN_ROWS = 12;
+
+        const scroller = document.getElementById('virtual-scroller');
+        const phantom = document.getElementById('virtual-phantom');
+        const rowsLayer = document.getElementById('virtual-rows-layer');
+        const editorContainer = document.getElementById('editor-container');
+
+        // Escape HTML safely
+        function escHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // Format inline bold (**text**) and inline code (`code`) into colored spans
+        function formatInlineRichText(rawLine) {
+            let safe = escHtml(rawLine);
+            // Inline code `...`
+            safe = safe.replace(/`([^`]+)`/g, '<span class="tok-code">`$1`</span>');
+            // Bold **...**
+            safe = safe.replace(/\*\*([^*]+)\*\*/g, '<span class="tok-bold">**$1**</span>');
+            return safe;
+        }
+
+        // ================================================================================
+        //      🪄  2.  STRICT  GEMINI  ROW-GAP  &  VISUAL  FORMATTER  ENGINE  🪄
+        //          - 2 Rows Gap: Question -> Response
+        //          - 4 Rows Gap: Response -> Next Question
+        //          - 2 Rows Prefix & Suffix Gap: Above & Below Copiable Blocks
+        //          - Connected Vertical Lines for Steps
+        // ================================================================================
+        function buildFormattedChatLines(turnsArray) {
+            const out = [];
+            CODE_BLOCKS_MAP = {};
+            let blockCounter = 0;
+
+            // Helper to push exact N blank rows (removing any accidental trailing blanks first)
+            function enforceExactBlankRows(count, label) {
+                while (out.length > 0 && out[out.length - 1].raw.trim() === '' && out[out.length - 1].type !== 'code-line') {
+                    out.pop();
+                }
+                for (let i = 0; i < count; i++) {
+                    out.push({
+                        raw: '',
+                        html: `<span style="opacity:0.25;">${label} [Row ${i + 1}/${count}]</span>`,
+                        type: 'gap'
+                    });
+                }
+            }
+
+            turnsArray.forEach((turn, turnIdx) => {
+                // 4 ROWS GAP BETWEEN RESPONSE & NEXT QUESTION
+                if (turnIdx > 0) {
+                    enforceExactBlankRows(4, '↕ 4-Row Gap (Response → Next Question)');
+                }
+
+                // --- USER QUESTION BLOCK ---
+                const qLines = (turn.question || '').replace(/\r/g, '').trim().split('\n');
+                qLines.forEach((qLine, qIdx) => {
+                    const prefix = (qIdx === 0 && !qLine.startsWith('👤')) ? `👤 QUESTION ${turnIdx + 1}: ` : '';
+                    const fullRaw = prefix + qLine;
+                    out.push({
+                        raw: fullRaw,
+                        html: formatInlineRichText(fullRaw),
+                        type: 'question'
+                    });
+                });
+
+                // 2 ROWS GAP BETWEEN QUESTION & RESPONSE
+                enforceExactBlankRows(2, '↕ 2-Row Gap (Question → Response)');
+
+                // --- GEMINI RESPONSE BLOCK ---
+                const rLines = (turn.answer || '').replace(/\r/g, '').trim().split('\n');
+                let inCodeBlock = false;
+                let currentBlockId = '';
+                let currentBlockLang = '';
+                let currentBlockRawLines = [];
+                let inStepSequence = false;
+
+                for (let i = 0; i < rLines.length; i++) {
+                    const line = rLines[i];
+                    const trimmed = line.trim();
+
+                    // Detect Fenced Copiable Block Start / End (```)
+                    if (trimmed.startsWith('```')) {
+                        if (!inCodeBlock) {
+                            inStepSequence = false;
+                            // ENFORCE 2 ROWS PREFIX GAP ABOVE COPIABLE BLOCK
+                            enforceExactBlankRows(2, '↕ 2-Row Prefix Gap (Above Copiable Block)');
+
+                            inCodeBlock = true;
+                            blockCounter++;
+                            currentBlockId = `block_${blockCounter}`;
+                            currentBlockLang = trimmed.slice(3).trim() || 'text';
+                            currentBlockRawLines = [];
+
+                            const headerRaw = ```` + currentBlockLang;
+                            out.push({
+                                raw: headerRaw,
+                                html: `<span style="color:#58a6ff;font-weight:700;">╭─── 📋 COPIABLE BLOCK [${escHtml(currentBlockLang.toUpperCase())}]</span>` +
+                                      `<button class="inline-copy-btn" onclick="copyCodeBlock('${currentBlockId}', this)">📋  Copy  Block</button>`,
+                                type: 'code-header',
+                                blockId: currentBlockId
+                            });
+                        } else {
+                            // End of Copiable Block
+                            inCodeBlock = false;
+                            CODE_BLOCKS_MAP[currentBlockId] = currentBlockRawLines.join('\n');
+
+                            out.push({
+                                raw: '```',
+                                html: `<span style="color:#58a6ff;font-weight:700;">╰──────────────────────────────────────────────────────╯</span>`,
+                                type: 'code-footer',
+                                blockId: currentBlockId
+                            });
+
+                            // Skip any native empty lines immediately following the closing fence
+                            while (i + 1 < rLines.length && rLines[i + 1].trim() === '') {
+                                i++;
+                            }
+                            // Only add 2-row suffix gap if there are more lines in this response
+                            if (i + 1 < rLines.length) {
+                                enforceExactBlankRows(2, '↕ 2-Row Suffix Gap (Below Copiable Block)');
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Inside Copiable Block
+                    if (inCodeBlock) {
+                        currentBlockRawLines.push(line);
+                        out.push({
+                            raw: line,
+                            html: escHtml(line),
+                            type: 'code-line',
+                            blockId: currentBlockId
+                        });
+                        continue;
+                    }
+
+                    // Outside Code Block: Detect Step Rows (e.g., "1. ", "Step 1:", "Step 2 -")
+                    const stepMatch = trimmed.match(/^(?:Step\s+\d+[:.-]?|\d+\.)\s+(.*)/i);
+                    if (stepMatch) {
+                        inStepSequence = true;
+                        out.push({
+                            raw: line,
+                            html: `<div class="step-spine"></div><div class="step-dot"></div>` +
+                                  `<span class="tok-step-num">${formatInlineRichText(line)}</span>`,
+                            type: 'step-start'
+                        });
+                        continue;
+                    }
+
+                    // Continuation of a Vertical-Line Step Sequence
+                    if (inStepSequence && trimmed !== '' && !trimmed.startsWith('#')) {
+                        out.push({
+                            raw: line,
+                            html: `<div class="step-spine"></div>` + formatInlineRichText(line),
+                            type: 'step-body'
+                        });
+                        continue;
+                    } else if (trimmed === '') {
+                        // Keep vertical spine connecting across a single blank line if next line is also a step!
+                        let nextNonEmpty = '';
+                        for (let k = i + 1; k < rLines.length; k++) {
+                            if (rLines[k].trim() !== '') { nextNonEmpty = rLines[k].trim(); break; }
+                        }
+                        const nextIsStep = /^(?:Step\s+\d+[:.-]?|\d+\.)\s+/i.test(nextNonEmpty);
+                        if (inStepSequence && nextIsStep) {
+                            out.push({
+                                raw: '',
+                                html: `<div class="step-spine"></div>`,
+                                type: 'step-body'
+                            });
+                            continue;
+                        } else {
+                            inStepSequence = false;
+                        }
+                    }
+
+                    // Detect Headings (#, ##, ###)
+                    if (/^#{1,6}\s+/.test(trimmed)) {
+                        out.push({
+                            raw: line,
+                            html: formatInlineRichText(line),
+                            type: 'heading'
+                        });
+                        continue;
+                    }
+
+                    // Detect Bullet Points (*, -, •)
+                    if (/^([*•-])\s+/.test(trimmed)) {
+                        out.push({
+                            raw: line,
+                            html: `<span class="tok-bullet">❖ </span>` + formatInlineRichText(line.replace(/^(\s*[*•-]\s+)/, '$1')),
+                            type: 'bullet'
+                        });
+                        continue;
+                    }
+
+                    // Detect Blockquotes (>)
+                    if (trimmed.startsWith('>')) {
+                        out.push({
+                            raw: line,
+                            html: `<span class="tok-quote">${formatInlineRichText(line)}</span>`,
+                            type: 'normal'
+                        });
+                        continue;
+                    }
+
+                    // Normal Colored Response Line
+                    out.push({
+                        raw: line,
+                        html: formatInlineRichText(line),
+                        type: 'normal'
+                    });
+                }
+            });
+
+            setVirtualLines(out);
+        }
+
+        // Convert plain raw text into Question/Answer turns or format directly
+        function parseRawTextToTurns(rawText, smartFormat = true) {
+            if (!smartFormat) {
+                const rawArr = rawText.replace(/\r/g, '').split('\n').map(l => ({
+                    raw: l,
+                    html: formatInlineRichText(l),
+                    type: 'normal'
+                }));
+                setVirtualLines(rawArr);
+                return;
+            }
+
+            // Split by common Question/User markers if present
+            const lines = rawText.replace(/\r/g, '').split('\n');
+            const turns = [];
+            let currentQ = [];
+            let currentA = [];
+            let state = 'A';
+
+            for (let i = 0; i < lines.length; i++) {
+                const l = lines[i];
+                const qMatch = l.match(/^(?:👤\s*QUESTION\s*\d*[:.]?|User\s*:|You\s*:|Prompt\s*:|Question\s*\d*[:.]|Q\d*[:.])\s*(.*)/i);
+                const aMatch = l.match(/^(?:🤖\s*GEMINI\s*:|Gemini\s*:|Assistant\s*:|Response\s*:|Answer\s*:|A\d*[:.])\s*(.*)/i);
+
+                if (qMatch) {
+                    if (currentQ.length > 0 || currentA.length > 0) {
+                        turns.push({
+                            question: currentQ.join('\n') || 'User Prompt',
+                            answer: currentA.join('\n')
+                        });
+                        currentQ = [];
+                        currentA = [];
+                    }
+                    state = 'Q';
+                    if (qMatch[1]) currentQ.push(qMatch[1]);
+                } else if (aMatch) {
+                    state = 'A';
+                    if (aMatch[1]) currentA.push(aMatch[1]);
+                } else {
+                    if (state === 'Q' && currentA.length === 0 && l.trim() !== '') {
+                        currentQ.push(l);
+                    } else {
+                        state = 'A';
+                        currentA.push(l);
+                    }
+                }
+            }
+
+            if (currentQ.length > 0 || currentA.length > 0) {
+                turns.push({
+                    question: currentQ.join('\n') || 'Shared Gemini Prompt',
+                    answer: currentA.join('\n')
+                });
+            }
+
+            buildFormattedChatLines(turns);
+        }
+
+        // ================================================================================
+        //      🪄  3.  GEMINI  SHARE  LINK  EXTRACTOR  (MULTI-PROXY  ENGINE)  🪄
+        // ================================================================================
+        function showStatus(msg) {
+            const modal = document.getElementById('status-modal');
+            document.getElementById('status-message').innerText = msg;
+            modal.classList.add('active');
+        }
+        function hideStatus() {
+            document.getElementById('status-modal').classList.remove('active');
+        }
+
+        async function extractFromGeminiLink() {
+            const urlInput = document.getElementById('gemini-url-input').value.trim();
+            if (!urlInput) {
+                alert('🪄 Please paste a Gemini Share Link first!');
+                return;
+            }
+
+            showStatus('Initialising  Secure  Extraction   ☁️  .....');
+
+            try {
+                // Stage 1: Try Jina Reader Headless Renderer (Returns clean Markdown with CORS *)
+                showStatus('Fetching  Rendered  Gemini  Chat   🪄  .....');
+                const jinaUrl = `[https://r.jina.ai/$](https://r.jina.ai/$){urlInput}`;
+                const jinaRes = await fetch(jinaUrl, {
+                    headers: { 'Accept': 'text/plain' }
+                });
+
+                if (jinaRes.ok) {
+                    const mdText = await jinaRes.text();
+                    const cleaned = cleanScrapedGeminiMarkdown(mdText);
+                    if (cleaned && cleaned.length > 0) {
+                        showStatus('Applying  2-Row  &  4-Row  Formatting   🎉  .....');
+                        setTimeout(() => {
+                            buildFormattedChatLines(cleaned);
+                            hideStatus();
+                        }, 350);
+                        return;
+                    }
+                }
+
+                // Stage 2: Fallback Raw HTML Proxy + AF_initDataCallback Parser
+                showStatus('Trying  Fallback  HTML  Parser   😇  .....');
+                const proxyUrl = `[https://api.allorigins.win/get?url=$](https://api.allorigins.win/get?url=$){encodeURIComponent(urlInput)}`;
+                const rawRes = await fetch(proxyUrl);
+                if (rawRes.ok) {
+                    const data = await rawRes.json();
+                    const turns = parseGoogleAFInitData(data.contents || '');
+                    if (turns.length > 0) {
+                        buildFormattedChatLines(turns);
+                        hideStatus();
+                        return;
+                    }
+                }
+
+                hideStatus();
+                alert('⚠️ Google blocked public proxy access for this link or the link requires sign-in.\n\nClick "📋 Paste Chat / Text" at the top to paste the conversation directly and format it instantly!');
+                togglePasteDrawer(true);
+            } catch (err) {
+                hideStatus();
+                alert('⚠️ Could not reach proxy server. Opening Paste Box so you can paste the chat directly!');
+                togglePasteDrawer(true);
+            }
+        }
+
+        function cleanScrapedGeminiMarkdown(md) {
+            const lines = md.replace(/\r/g, '').split('\n');
+            // Remove Jina metadata headers and Gemini boilerplate footer
+            const contentLines = lines.filter(l =>
+                !l.startsWith('Title:') &&
+                !l.startsWith('URL Source:') &&
+                !l.startsWith('Markdown Content:') &&
+                !l.includes('Opens in a new window')
+            );
+            const joined = contentLines.join('\n').trim();
+            if (!joined) return [];
+
+            // Split into Q&A turns if user prompts are detected, otherwise treat first block as Question
+            const paragraphs = joined.split(/\n{2,}/);
+            if (paragraphs.length >= 2) {
+                return [{
+                    question: paragraphs[0],
+                    answer: paragraphs.slice(1).join('\n\n')
+                }];
+            }
+            return [{ question: 'Extracted Gemini Link Prompt', answer: joined }];
+        }
+
+        function parseGoogleAFInitData(html) {
+            const turns = [];
+            const regex = /AF_initDataCallback\(([\s\S]*?)\);<\/script>/g;
+            let match;
+            while ((match = regex.exec(html)) !== null) {
+                const block = match[1];
+                if (block.length > 200) {
+                    const strings = [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
+                        .map(m => m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'))
+                        .filter(s => s.length > 25 && !s.startsWith('http') && !s.includes('/_/'));
+                    if (strings.length >= 2) {
+                        turns.push({
+                            question: strings[0],
+                            answer: strings.slice(1).join('\n\n')
+                        });
+                        break;
+                    }
+                }
+            }
+            return turns;
+        }
+
+        // ================================================================================
+        //      🪄  4.  CORE  60FPS  VIRTUAL  SCROLLER  RENDER  ENGINE  🪄
+        // ================================================================================
+        function setVirtualLines(linesArray) {
+            VIRTUAL_LINES = linesArray.length > 0 ? linesArray : [{ raw: '', html: '', type: 'normal' }];
+            document.getElementById('total-lines-count').value = VIRTUAL_LINES.length;
+            updateScrollMetrics();
+            renderVisibleVirtualRows();
+        }
+
+        function updateScrollMetrics() {
+            rowHeight = Math.round(fontSize * 1.75);
+            const totalHeight = VIRTUAL_LINES.length * rowHeight;
+            phantom.style.height = `${totalHeight}px`;
+            rowsLayer.style.fontSize = `${fontSize}px`;
+            rowsLayer.style.lineHeight = `${rowHeight}px`;
+            document.getElementById('zoom-indicator').innerText = `🔍  Zoom: ${fontSize}px  |  ⚡ 60FPS Virtual Engine`;
+        }
+
+        let scrollTicking = false;
+        scroller.addEventListener('scroll', () => {
+            if (!scrollTicking) {
+                scrollTicking = true;
+                requestAnimationFrame(() => {
+                    renderVisibleVirtualRows();
+                    scrollTicking = false;
+                });
+            }
+        }, { passive: true });
+
+        function renderVisibleVirtualRows() {
+            const scrollTop = scroller.scrollTop;
+            const viewportHeight = scroller.clientHeight || 500;
+
+            const total = VIRTUAL_LINES.length;
+            const firstVisible = Math.floor(scrollTop / rowHeight);
+            const visibleCount = Math.ceil(viewportHeight / rowHeight);
+
+            const startIdx = Math.max(0, firstVisible - OVERSCAN_ROWS);
+            const endIdx = Math.min(total, firstVisible + visibleCount + OVERSCAN_ROWS);
+
+            const offsetY = startIdx * rowHeight;
+            rowsLayer.style.transform = `translate3d(0, ${offsetY}px, 0)`;
+
+            let htmlBuffer = '';
+            for (let i = startIdx; i < endIdx; i++) {
+                const item = VIRTUAL_LINES[i];
+                const lineNum = i + 1;
+                htmlBuffer += `<div class="v-row type-${item.type}" style="height:${rowHeight}px;">` +
+                              `<span class="v-gutter">${lineNum}</span>` +
+                              `<div class="v-content">${item.html || ''}</div>` +
+                              `</div>`;
+            }
+            rowsLayer.innerHTML = htmlBuffer;
+        }
+
+        // ================================================================================
+        //      🪄  5.  SMOOTH  CTRL+WHEEL  &  PINCH-TO-ZOOM  (ZERO  LAG)  🪄
+        // ================================================================================
+        function applyZoom(newSize) {
+            const clamped = Math.min(Math.max(9, Math.round(newSize)), 42);
+            if (clamped === fontSize) return;
+
+            // Keep top visible line anchored during zoom
+            const currentTopLine = scroller.scrollTop / rowHeight;
+            fontSize = clamped;
+            updateScrollMetrics();
+            scroller.scrollTop = currentTopLine * rowHeight;
+            renderVisibleVirtualRows();
+        }
+
+        editorContainer.addEventListener('wheel', (e) => {
+            if (e.ctrlKey) {
+                e.preventDefault();
+                applyZoom(fontSize + (e.deltaY < 0 ? 1 : -1));
+            }
+        }, { passive: false });
+
+        let pinchStartDist = 0;
+        let pinchStartFont = 14;
+        editorContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault();
+                pinchStartDist = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+                pinchStartFont = fontSize;
+            }
+        }, { passive: false });
+
+        editorContainer.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2 && pinchStartDist > 0) {
+                e.preventDefault();
+                const dist = Math.hypot(
+                    e.touches[0].pageX - e.touches[1].pageX,
+                    e.touches[0].pageY - e.touches[1].pageY
+                );
+                const scale = dist / pinchStartDist;
+                applyZoom(pinchStartFont * scale);
+            }
+        }, { passive: false });
+
+        // ================================================================================
+        //      🪄  6.  COPY  FUNCTIONS,  JUMP  TO  LINE,  SINGLE  &  MULTI-SPLIT  🪄
+        // ================================================================================
+        function copyCodeBlock(blockId, btnElem) {
+            const rawCode = CODE_BLOCKS_MAP[blockId] || '';
+            navigator.clipboard.writeText(rawCode).then(() => {
+                const oldText = btnElem.innerText;
+                btnElem.innerText = '✅  Copied!';
+                setTimeout(() => { btnElem.innerText = oldText; }, 1600);
+            });
+        }
+
+        function copyEntireDocument() {
+            const fullText = VIRTUAL_LINES.map(l => l.raw).join('\n');
+            navigator.clipboard.writeText(fullText).then(() => {
+                alert('🎉   Entire  Formatted  Text  Copied  To  Clipboard  !!');
+            });
+        }
+
+        function togglePasteDrawer(forceOpen) {
+            const drawer = document.getElementById('paste-drawer');
+            if (forceOpen === true) drawer.classList.add('open');
+            else drawer.classList.toggle('open');
+        }
+
+        function applyPastedText(smartFormat) {
+            const val = document.getElementById('raw-paste-input').value;
+            if (!val.trim()) return;
+            parseRawTextToTurns(val, smartFormat);
+            document.getElementById('paste-drawer').classList.remove('open');
+        }
+
+        function loadUserTextFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('single-file-name').value = file.name;
+                parseRawTextToTurns(e.target.result, false);
+            };
+            reader.readAsText(file);
+        }
+
+        function jumpToSpecificLine() {
+            const val = parseInt(document.getElementById('jump-input').value);
+            if (!val || val < 1) return;
+            const targetLine = Math.min(Math.max(1, val), VIRTUAL_LINES.length);
+            scroller.scrollTo({
+                top: (targetLine - 1) * rowHeight,
+                behavior: 'smooth'
+            });
+        }
+
+        // 1-Click Save Full Document in Any Extension
+        function downloadSingleFullFile() {
+            const filename = document.getElementById('single-file-name').value.trim() || 'gemini_chat.txt';
+            const fullText = VIRTUAL_LINES.map(l => l.raw).join('\n');
+            triggerBrowserDownload(fullText, filename);
+        }
+
+        // Dynamic Split File Generator (Manual or 1-Click Auto-Equal Split)
+        function generateSplitFileButtons(autoFillEqual = false) {
+            const count = parseInt(document.getElementById('split-count-input').value);
+            if (!count || count < 1) {
+                alert('🪄 Please enter a valid Split File Count first!');
+                return;
+            }
+
+            const container = document.getElementById('dynamic-configs-container');
+            container.innerHTML = '';
+
+            const totalLines = VIRTUAL_LINES.length;
+            const chunkSize = Math.ceil(totalLines / count);
+            let ext = document.getElementById('auto-ext-input').value.trim() || '.txt';
+            if (!ext.startsWith('.')) ext = '.' + ext;
+
+            for (let i = 1; i <= count; i++) {
+                if (autoFillEqual) {
+                    const startLine = (i - 1) * chunkSize + 1;
+                    const endLine = Math.min(totalLines, i * chunkSize);
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'split-inputs-row';
+                    wrapper.innerHTML = `
+                        <input type="text" class="split-text-input input-lines" value="${startLine}-${endLine}" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )">
+                        <input type="text" class="split-text-input input-filename" value="chat_part_${i}${ext}" placeholder="🗞️   Enter  Filename   ( e.g.  part_${i}${ext} )">
+                    `;
+                    container.appendChild(wrapper);
+                } else {
+                    const btn = document.createElement('button');
+                    btn.className = 'split-file-btn';
+                    btn.innerHTML = `✨   Select  For  ${i}${getOrdinalSuffix(i)}  File`;
+                    btn.onclick = () => transformButtonToInputs(btn, i, ext);
+                    container.appendChild(btn);
+                }
+            }
+        }
+
+        function getOrdinalSuffix(i) {
+            let j = i % 10, k = i % 100;
+            if (j === 1 && k !== 11) return 'st';
+            if (j === 2 && k !== 12) return 'nd';
+            if (j === 3 && k !== 13) return 'rd';
+            return 'th';
+        }
+
+        function transformButtonToInputs(buttonElement, index, ext = '.txt') {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'split-inputs-row';
+            wrapper.innerHTML = `
+                <input type="text" class="split-text-input input-lines" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )">
+                <input type="text" class="split-text-input input-filename" placeholder="🗞️   Enter  Filename   ( e.g.  bot_part${index}${ext} )">
+            `;
+            buttonElement.replaceWith(wrapper);
+        }
+
+        function downloadAllSplittedFiles() {
+            const inputRows = document.querySelectorAll('.split-inputs-row');
+            if (inputRows.length === 0) {
+                alert('🪄 Please Generate And Configure Split Files First !!');
+                return;
+            }
+
+            let successCount = 0;
+            inputRows.forEach((row, idx) => {
+                const lineRange = row.querySelector('.input-lines').value.trim();
+                const filename = row.querySelector('.input-filename').value.trim();
+                if (!lineRange || !filename) return;
+
+                const parts = lineRange.split('-');
+                const start = parseInt(parts[0]);
+                const end = parseInt(parts[1] || parts[0]);
+
+                if (!isNaN(start) && !isNaN(end)) {
+                    const startIndex = Math.max(0, start - 1);
+                    const endIndex = Math.min(VIRTUAL_LINES.length, end);
+                    const extractedData = VIRTUAL_LINES.slice(startIndex, endIndex).map(l => l.raw).join('\n');
+
+                    setTimeout(() => {
+                        triggerBrowserDownload(extractedData, filename);
+                    }, idx * 140);
+                    successCount++;
+                }
+            });
+
+            if (successCount > 0) {
+                setTimeout(() => {
+                    alert(`🎉   Successfully  Splitted  &  Downloaded   ${successCount}   Files   !!`);
+                }, successCount * 150 + 100);
+            }
+        }
+
+        function triggerBrowserDownload(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // ================================================================================
+        //      🪄  7.  INITIAL  DEMO  &  30,000-LINE  ZERO-LAG  STRESS  TEST  🪄
+        // ================================================================================
+        const INITIAL_DEMO_TURNS = [
+            {
+                question: "How do I build a fast Python async worker with vertical step flow and copiable blocks?",
+                answer: [
+                    "## High-Speed Async Pipeline Architecture",
+                    "Here is the complete breakdown with **colored normal text**, **highlighted bold terms**, **vertical-line connected steps**, and **2-row padded copiable blocks**:",
+                    "",
+                    "1. **Initialize the Event Loop:** Set up your `asyncio` queue and worker pool.",
+                    "   Keep memory usage minimal by streaming chunks directly.",
+                    "2. **Configure Retry Headers:** Attach custom `User-Agent` and timeout guards.",
+                    "   This prevents connection drops during long transfers.",
+                    "3. **Flush Output Buffer:** Write completed segments to disk asynchronously.",
+                    "",
+                    "Below is the copiable Python block (notice the **2 blank rows above** and **2 blank rows below**):",
+                    "```python",
+                    "import asyncio",
+                    "",
+                    "async def worker(name: str, queue: asyncio.Queue):",
+                    "    while True:",
+                    "        task = await queue.get()",
+                    "        print(f'[{name}] Processing: {task}')",
+                    "        await asyncio.sleep(0.05)",
+                    "        queue.task_done()",
+                    "```",
+                    "Key advantages of this layout:",
+                    "* **Zero DOM Lag:** Virtualized line rendering keeps frame times under 1ms.",
+                    "* **1-Click Copy:** Click the button on the block header or copy any line range.",
+                    "> Pro Tip: Use the splitter below to slice any line range into `.py`, `.txt`, `.md`, or `.html` files!"
+                ].join('\n')
+            },
+            {
+                question: "Can I also split a 30,000-line chat into multiple custom files in a single click?",
+                answer: [
+                    "Yes! Notice how there are **4 blank numbered rows** above this second question, and **2 blank numbered rows** between the question and this response.",
+                    "",
+                    "1. **Single File Save:** Type any filename like `notes.md` or `script.py` and click **Save In 1 File**.",
+                    "2. **Multi-File Split:** Enter the number of files, click **Auto-Fill Equal Line Splits** (or configure custom line ranges), and click **Download**.",
+                    "",
+                    "```javascript",
+                    "// 60FPS Virtual Line Engine",
+                    "const visibleSlice = VIRTUAL_LINES.slice(startIdx, endIdx);",
+                    "console.log(`Rendered ${visibleSlice.length} DOM rows out of ${VIRTUAL_LINES.length} total lines!`);",
+                    "```",
+                    "Click **⚡ Test 30,000 Lines** in the top bar right now to feel the difference!"
+                ].join('\n')
+            }
+        ];
+
+        function loadStressTest30k() {
+            showStatus('Generating  30,000+  Formatted  Chat  Lines   ⚡  .....');
+            setTimeout(() => {
+                const bigTurns = [];
+                for (let i = 1; i <= 600; i++) {
+                    bigTurns.push({
+                        question: `Stress Test Question #${i}: How does the virtual scroller handle 30,000+ lines with colored text, vertical steps, and copiable code blocks on a low-end GPU?`,
+                        answer: [
+                            `## Turn #${i} — Virtualized Rendering Verification`,
+                            `Normal response text is rendered in **crisp ice-blue** with **amber bold highlights** and ` + "`inline_code`" + ` badges.`,
+                            `1. **Step One (Connected Vertical Spine):** Only ~45 rows exist in the DOM at any instant.`,
+                            `   The glowing purple vertical line connects every step smoothly.`,
+                            `2. **Step Two (Zero Reflow Zoom):** Pinching or Ctrl+Scrolling updates row height mathematically.`,
+                            `3. **Step Three (Exact Row Gaps):** 2 rows after Q, 4 rows before next Q, 2 rows around code.`,
+                            "```python",
+                            `def process_chunk_${i}(data):`,
+                            `    # Copiable Block #${i} with 2-row prefix & suffix gaps`,
+                            `    return [x * 2 for x in data if x > 0]`,
+                            "```",
+                            `* Bullet Point A: Instant jump to any line from 1 to 30,000+.`,
+                            `* Bullet Point B: 1-click multi-file splitting into any extension.`
+                        ].join('\n')
+                    });
+                }
+                buildFormattedChatLines(bigTurns);
+                hideStatus();
+            }, 80);
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            buildFormattedChatLines(INITIAL_DEMO_TURNS);
+        });
+    </script>
+</body>
+</html>
