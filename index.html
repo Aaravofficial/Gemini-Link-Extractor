@@ -865,21 +865,21 @@
         }
 
 
-        // Updated Extraction Logic (Multi-Stage HTML + Headless Fallback Route)
+        // Updated Extraction Logic (Direct Headless Render Route)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
             document.getElementById('debug-log-output').innerHTML = '';
             logDebug(`Starting extraction for: ${urlInput}`, 'info');
-            showStatus('Fetching Authenticated Chat 🪄 .....');
+            showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
             try {
                 // ✅ Your actual Vercel domain
                 const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
                 const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
-                logDebug(`Calling Vercel Endpoint (Stage 1 - Raw HTML): ${proxyUrl}`, 'warn');
+                logDebug(`Calling Vercel Endpoint : ${proxyUrl}`, 'warn');
         
                 const rawRes = await fetch(proxyUrl);
                 logDebug(`Vercel HTTP Status : ${rawRes.status}`, rawRes.ok ? 'success' : 'error');
@@ -892,46 +892,33 @@
                 }
 
                 if (data.finalUrl) {
-                    logDebug(`Resolved Redirect URL : ${data.finalUrl}`, 'info');
+                    logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
                 }
 
-                if (data.html) {
-                    logDebug(`Payload Received. HTML Length: ${data.html.length} Characters.`, 'info');
+                // Support both direct markdown response and legacy fallback
+                let mdPayload = data.markdown || '';
+                if (!mdPayload && data.html) {
+                    logDebug('Vercel returned raw HTML; calling rendered mode...', 'warn');
+                    const renderRes = await fetch(`${proxyUrl}&mode=rendered`);
+                    const renderData = await renderRes.json();
+                    mdPayload = renderData.markdown || '';
+                }
+
+                if (mdPayload && mdPayload.trim().length > 40) {
+                    logDebug(`Rendered Payload Received: ${mdPayload.length} Characters.`, 'info');
                     
-                    // Stage 1: Parse all AF_initDataCallback blocks in the HTML
-                    let turns = parseGoogleAFInitData(data.html);
-                    logDebug(`Stage 1 Parser Found ${turns.length} Conversation Turns.`, turns.length > 0 ? 'success' : 'warn');
+                    const turns = cleanScrapedGeminiMarkdown(mdPayload);
+                    logDebug(`Extracted ${turns.length} Conversation Turn(s).`, turns.length > 0 ? 'success' : 'warn');
 
                     if (turns.length > 0) {
                         buildFormattedChatLines(turns);
                         hideStatus();
-                        logDebug('Chat successfully loaded into UI engine!', 'success');
+                        logDebug('Chat successfully formatted into UI engine!', 'success');
                         return;
                     }
-
-                    // Stage 2: Automatic fallback if share.gemini.google served an unhydrated SPA shell
-                    logDebug('Stage 1 found 0 turns (SPA shell). Triggering Stage 2 Headless Render Fallback...', 'warn');
-                    showStatus('Rendering Dynamic SPA Chat 🪄 .....');
-
-                    const renderUrl = `${proxyUrl}&mode=rendered`;
-                    const renderRes = await fetch(renderUrl);
-                    const renderData = await renderRes.json();
-
-                    if (renderData.markdown && renderData.markdown.trim().length > 40) {
-                        logDebug(`Stage 2 Markdown Received: ${renderData.markdown.length} Characters.`, 'success');
-                        const mdTurns = cleanScrapedGeminiMarkdown(renderData.markdown);
-                        if (mdTurns.length > 0) {
-                            buildFormattedChatLines(mdTurns);
-                            hideStatus();
-                            logDebug('Chat successfully loaded via Stage 2 Renderer!', 'success');
-                            return;
-                        }
-                    }
-
-                    throw new Error('Both Stage 1 (AF_initDataCallback) and Stage 2 (Rendered Markdown) found 0 chat turns.');
-                } else {
-                    throw new Error('No HTML data received from Vercel.');
                 }
+
+                throw new Error('No conversation turns found in the rendered share link.');
             } catch (err) {
                 logDebug(`Execution Failed: ${err.message}`, 'error');
                 hideStatus();
@@ -945,7 +932,6 @@
             const logOutput = document.getElementById('debug-log-output');
             if (!logOutput) return;
     
-            // Extract plain text without HTML tags
             const rawLogs = logOutput.innerText;
     
             navigator.clipboard.writeText(rawLogs).then(() => {
@@ -964,143 +950,86 @@
             });
         }
 
-        
 
         function cleanScrapedGeminiMarkdown(md) {
-            const lines = md.replace(/\r/g, '').split('\n');
-            const turns = [];
-            
-            // 1. Nuke all UI garbage from the Markdown
-            const junkPhrases = [
-                'Title:', 'URL Source:', 'Markdown Content:', 'Opens in a new window',
-                '[Sign in]', '![Image', '[Gemini]', 'Created with **Pro**', 'Gemini may display',
-                '[About Gemini]', '[Get Gemini App]', '[Subscriptions]', '[For Business]',
-                'Copy public link', 'Report', 'Copy prompt', 'Expand text', 'Download code',
-                'Copy code', 'Google apps', 'https://accounts.google.com', 'Sign in'
-            ];
+            let text = md.replace(/\r/g, '');
 
-            const cleanLines = lines.filter(l => {
-                const text = l.trim();
-                if (!text) return true; // Keep empty lines for spacing
-                for (let j of junkPhrases) if (text.includes(j) || text === 'Sign in') return false;
-                return !text.startsWith('# '); // Strip generic page titles
+            // 1. Cut off the Google/Gemini footer at the bottom of the page
+            const footerMarkers = [
+                '\nGemini may display inaccurate info',
+                '\n[About Gemini](',
+                '\nCopy public link'
+            ];
+            for (const marker of footerMarkers) {
+                const idx = text.indexOf(marker);
+                if (idx !== -1) {
+                    text = text.substring(0, idx);
+                }
+            }
+
+            // 2. Fix standalone language labels above code blocks:
+            // Converts "JavaScript\n\n\n```text" -> "```javascript"
+            text = text.replace(/\n([A-Za-z0-9+#_-]{1,18})\n+\s*```(?:text)?\n/g, (match, lang) => {
+                return '\n```' + lang.toLowerCase() + '\n';
             });
 
-            // 2. Smart Q&A Splitter
-            let currentQ = [];
-            let currentA = [];
-            let inQuestion = false;
-
-            for (let i = 0; i < cleanLines.length; i++) {
-                const line = cleanLines[i];
-                const trimmed = line.trim();
-
-                // Detect new user prompt
-                if (trimmed.startsWith('##### You said') || trimmed.startsWith('**You said:**')) {
-                    if (currentQ.length > 0 || currentA.length > 0) {
-                        turns.push({
-                            question: currentQ.join('\n').trim() || 'User Prompt',
-                            answer: currentA.join('\n').trim()
-                        });
-                        currentQ = [];
-                        currentA = [];
-                    }
-                    inQuestion = true;
-                    continue; // Skip the "You said" header
-                }
-
-                if (inQuestion) {
-                    // Jina repeats the prompt text right after the header. Collect it until a blank line.
-                    if (trimmed === '' && cleanLines[i+1] && cleanLines[i+1].trim() !== '') {
-                        inQuestion = false; // First blank line after prompt text switches to Answer
-                    } else {
-                        currentQ.push(line);
-                    }
-                } else {
-                    currentA.push(line);
-                }
+            // 3. Slice away everything above the first "##### You said" turn
+            // (This removes Sign in, Gemini logo, H1 page title, and "Created with Pro" date header)
+            const firstTurnIdx = text.indexOf('##### You said');
+            if (firstTurnIdx !== -1) {
+                text = text.substring(firstTurnIdx);
+            } else {
+                // Fallback if a share link has no "##### You said" marker
+                const cleanFallback = text.split('\n').filter(l =>
+                    !l.startsWith('Title:') &&
+                    !l.startsWith('URL Source:') &&
+                    !l.startsWith('Markdown Content:') &&
+                    !l.includes('[accounts.google.com/ServiceLogin](https://accounts.google.com/ServiceLogin)') &&
+                    !l.includes('gemini_sparkle')
+                ).join('\n').trim();
+                return cleanFallback ? [{ question: 'Shared Gemini Prompt', answer: cleanFallback }] : [];
             }
 
-            // Push final turn
-            if (currentQ.length > 0 || currentA.length > 0) {
-                turns.push({
-                    question: currentQ.join('\n').trim() || 'User Prompt',
-                    answer: currentA.join('\n').trim()
-                });
-            }
-
-            return turns.length > 0 ? turns : [{ question: 'Extracted Document', answer: cleanLines.join('\n') }];
-        }
-
-
-        function parseGoogleAFInitData(html) {
+            // 4. Split into individual Question & Answer turns on every "##### You said"
+            const rawChunks = text.split(/^##### You said\s*/m).filter(c => c.trim().length > 0);
             const turns = [];
-            const rawTexts = [];
-            
-            try {
-                if (typeof logDebug === 'function') logDebug(`Executing Bulletproof Regex Ripper on HTML...`, 'info');
 
-                // Bypass JSON parsing entirely. Rip strings directly from the raw HTML payload.
-                const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
-                let match;
-                
-                while ((match = stringRegex.exec(html)) !== null) {
-                    let text = match[1];
-                    
-                    // Fast filter to ignore tiny strings, HTML tags, and URLs
-                    if (text.length > 25 && 
-                        !text.startsWith('http') && 
-                        !text.includes('<') && 
-                        !text.includes('AF_initDataCallback') &&
-                        !text.includes('gstatic.com')) {
-                        
-                        try {
-                            const decoded = JSON.parse('"' + text + '"').trim();
-                            // Final filter against hashes/IDs
-                            if (decoded.length > 25 && !/^[a-zA-Z0-9_-]{25,}$/.test(decoded)) {
-                                rawTexts.push(decoded);
-                            }
-                        } catch (e) {}
+            for (const chunk of rawChunks) {
+                const lines = chunk.split('\n');
+                const headerPreview = (lines.shift() || '').trim();
+
+                // Remove leading blank lines after the header
+                while (lines.length > 0 && lines[0].trim() === '') {
+                    lines.shift();
+                }
+
+                let questionText = headerPreview || 'User Prompt';
+
+                // If the header wasn't truncated with "…", the first line in body is an exact duplicate of the prompt
+                if (lines.length > 0 && !headerPreview.endsWith('…') && !headerPreview.endsWith('...')) {
+                    if (lines[0].trim() === headerPreview) {
+                        lines.shift();
+                        while (lines.length > 0 && lines[0].trim() === '') {
+                            lines.shift();
+                        }
                     }
                 }
 
-                // Deduplicate strings
-                const uniqueTexts = [...new Set(rawTexts)];
-                
-                // Blacklist remaining UI artifacts
-                const blacklist = [
-                    " ventajas y desventajas", "instant noodles", "Ireland trip", "Google LLC",
-                    "Learn more", "Privacy Policy", "Terms of Service", "Send feedback",
-                    "Gemini Apps Activity", "Gemini may display inaccurate info", "Sign in"
-                ];
-                
-                const validChats = uniqueTexts.filter(text => {
-                    for (let b of blacklist) if (text.includes(b)) return false;
-                    return true;
+                // Clean any trailing "Sign in" line at the end of the last turn
+                while (lines.length > 0 && (lines[lines.length - 1].trim() === 'Sign in' || lines[lines.length - 1].trim() === '')) {
+                    lines.pop();
+                }
+
+                const answerText = lines.join('\n').trim();
+                turns.push({
+                    question: questionText,
+                    answer: answerText
                 });
-
-                if (typeof logDebug === 'function') logDebug(`Regex Ripper extracted ${validChats.length} conversational blocks.`, validChats.length > 0 ? 'success' : 'warn');
-
-                // Group into Q&A
-                if (validChats.length >= 2) {
-                    for (let i = 0; i < validChats.length - 1; i += 2) {
-                        turns.push({ question: validChats[i], answer: validChats[i+1] });
-                    }
-                } else if (validChats.length === 1) {
-                    turns.push({ question: "Extracted Document", answer: validChats[0] });
-                } else {
-                    throw new Error("Regex Ripper found 0 valid conversational blocks.");
-                }
-
-            } catch (e) {
-                console.error("Regex Ripper Failed:", e);
-                if (typeof logDebug === 'function') logDebug(`Parser Exception: ${e.message}`, 'error');
             }
-            
+
             return turns;
         }
-
-        
+  
 
         // ================================================================================
         //      🪄  4.  CORE  60FPS  VIRTUAL  SCROLLER  RENDER  ENGINE  🪄
