@@ -967,55 +967,69 @@
         
 
         function cleanScrapedGeminiMarkdown(md) {
-            const lines = md.replace(/\r/g, '').split('\n');
+            let lines = md.replace(/\r/g, '').split('\n');
             
-            // Remove Jina's auto-generated metadata headers
-            const contentLines = lines.filter(l =>
-                !l.startsWith('Title:') &&
-                !l.startsWith('URL Source:') &&
-                !l.startsWith('Markdown Content:') &&
-                !l.includes('Opens in a new window')
-            );
-            
-            const joined = contentLines.join('\n').trim();
+            // Extensive Blacklist of Google/Jina UI elements to strip out of the Markdown
+            const junkPhrases = [
+                'Title:', 'URL Source:', 'Markdown Content:', 'Opens in a new window',
+                '[Sign in]', '![Image', '[Gemini]', 'Created with **Pro**',
+                'Gemini may display inaccurate info', '[About Gemini]', '[Get Gemini App]',
+                '[Subscriptions]', '[For Business]', 'Copy public link', 'Report',
+                'Copy prompt', 'Expand text', 'Download code', 'Copy code', 'Google apps',
+                'Sign in', 'https://accounts.google.com'
+            ];
+
+            let contentLines = lines.filter(l => {
+                const text = l.trim();
+                if (!text) return true; // Keep empty lines for spacing
+                for (let j of junkPhrases) {
+                    if (text.includes(j) || text === 'Sign in') return false;
+                }
+                return true;
+            });
+
+            // Find the start of actual chat content (skip the generated H1 title)
+            let startIndex = 0;
+            for (let i = 0; i < Math.min(15, contentLines.length); i++) {
+                if (contentLines[i].startsWith('# ')) {
+                    startIndex = i + 1;
+                }
+            }
+
+            const joined = contentLines.slice(startIndex).join('\n').trim();
             if (!joined) return [];
 
-            // For massive fallback documents (70KB+), wrap the entire payload 
-            // into a single turn so the UI's code block and step-rendering engines
-            // can parse the markdown smoothly from top to bottom.
-            return [{ 
-                question: 'Extracted Gemini Document (Stage 2 Fallback Render) 🪄', 
-                answer: joined 
-            }];
+            // If it must fallback to Markdown, at least the UI junk is gone
+            return [{ question: 'Extracted Gemini Chat (Stage 2 Render)', answer: joined }];
         }
 
 
         function parseGoogleAFInitData(html) {
             const turns = [];
             try {
-                // Log the HTML <title> to verify what page Google actually served
+                // Log the HTML <title> to verify what page Google served
                 const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
                 if (titleMatch && typeof logDebug === 'function') {
                     logDebug(`HTML Page Title : "${titleMatch[1].trim()}"`, 'info');
                 }
 
-                // 1. Find ALL <script> blocks that contain BOTH AF_initDataCallback AND data:
-                // This skips the ~8.5KB <head> bootstrap script that only defines the function!
+                // 1. Find ALL <script> blocks that contain AF_initDataCallback
+                // Notice we NO LONGER look for the "data:" keyword!
                 const scripts = html.split(/<script/i);
                 const candidateBlocks = [];
 
                 for (let s of scripts) {
-                    if (s.includes('AF_initDataCallback') && s.includes('data:')) {
+                    if (s.includes('AF_initDataCallback')) {
                         candidateBlocks.push(s);
                     }
                 }
 
                 if (typeof logDebug === 'function') {
-                    logDebug(`Found ${candidateBlocks.length} AF_initDataCallback block(s) with "data:".`, candidateBlocks.length > 0 ? 'info' : 'warn');
+                    logDebug(`Found ${candidateBlocks.length} AF_initDataCallback script(s).`, candidateBlocks.length > 0 ? 'info' : 'warn');
                 }
 
                 if (candidateBlocks.length === 0) {
-                    throw new Error("No AF_initDataCallback blocks with 'data:' found in HTML.");
+                    throw new Error("No AF_initDataCallback blocks found in HTML.");
                 }
 
                 const rawTexts = [];
@@ -1044,20 +1058,18 @@
                     }
                 }
 
-                // 2. Parse EVERY candidate AF_initDataCallback block (ds:0, ds:1, etc.)
+                // 2. Parse EVERY candidate AF_initDataCallback block
                 for (let bIdx = 0; bIdx < candidateBlocks.length; bIdx++) {
                     const dataBlock = candidateBlocks[bIdx];
-                    const keyMatch = dataBlock.match(/key\s*:\s*['"]([^'"]+)['"]/);
-                    const blockKey = keyMatch ? keyMatch[1] : `block_${bIdx}`;
+                    const blockKey = `block_${bIdx}`;
 
-                    let startIndex = dataBlock.indexOf('data:');
-                    if (startIndex !== -1) {
-                        startIndex = dataBlock.indexOf('[', startIndex);
-                    }
+                    // AGNOSTIC BRACKET HUNTER:
+                    // Find the FIRST array '[' that appears AFTER the function call, ignoring variable names.
+                    let keywordIdx = dataBlock.indexOf('AF_initDataCallback');
+                    let startIndex = dataBlock.indexOf('[', keywordIdx);
+
                     if (startIndex === -1) {
-                        if (typeof logDebug === 'function') {
-                            logDebug(`Skipping ${blockKey} (no '[' after 'data:').`, 'warn');
-                        }
+                        if (typeof logDebug === 'function') logDebug(`Skipping ${blockKey} (no array '[' found).`, 'warn');
                         continue;
                     }
 
