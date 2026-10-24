@@ -863,50 +863,59 @@
             output.scrollTop = output.scrollHeight;
         }
 
-        // Updated Extraction Logic
+
+        // Updated Extraction Logic (Headless Browser Route)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
-            // CLEAR PREVIOUS LOGS
             document.getElementById('debug-log-output').innerHTML = '';
             logDebug(`Starting extraction for: ${urlInput}`, 'info');
-            showStatus('Fetching Rendered Gemini Chat 🪄 .....');
+            showStatus('Rendering Chat via Headless Browser 🪄 .....');
 
             try {
                 // ✅ Your actual Vercel domain
                 const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
                 const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
-                logDebug(`Calling  Vercel  Endpoint   :   ${proxyUrl}`, 'warn');
+                logDebug(`Calling Vercel Endpoint : ${proxyUrl}`, 'warn');
         
                 const rawRes = await fetch(proxyUrl);
-                logDebug(`Vercel  HTTP  Status   :   ${rawRes.status} ${rawRes.statusText}`, rawRes.ok ? 'success' : 'error');
+                logDebug(`Vercel HTTP Status : ${rawRes.status}`, rawRes.ok ? 'success' : 'error');
         
                 const data = await rawRes.json();
         
                 if (!rawRes.ok) {
-                    logDebug(`Vercel  Backend  Error   :   ${JSON.stringify(data)}`, 'error');
-                    throw new Error('Vercel  Returned  an  Error');
+                    logDebug(`Backend Error : ${JSON.stringify(data)}`, 'error');
+                    throw new Error('Vercel Returned an Error');
                 }
 
-                logDebug(`Payload  Received  .   HTML  Length   :   ${data.html ? data.html.length : 0}   Characters  .`, 'info');
+                if (data.markdown) {
+                    logDebug(`Render Complete! Text Length : ${data.markdown.length} Characters.`, 'success');
+                    
+                    // Strip API headers and format
+                    let cleanText = data.markdown
+                        .replace(/Title:.*?\n/i, '')
+                        .replace(/URL Source:.*?\n/i, '')
+                        .replace(/Markdown Content:\n/i, '')
+                        .trim();
 
-                const turns = parseGoogleAFInitData(data.html || '');
-                logDebug(`Parser  Found   ${turns.length}   Conversation  Turns  .`, turns.length > 0 ? 'success' : 'warn');
-
-                if (turns.length > 0) {
-                    buildFormattedChatLines(turns);
-                    hideStatus();
+                    if (cleanText.length > 50) {
+                        // Pass the raw text into our 60FPS UI engine
+                        const turns = [{ question: "Extracted Shared Chat", answer: cleanText }];
+                        buildFormattedChatLines(turns);
+                        hideStatus();
+                        logDebug('Chat successfully loaded into UI engine!', 'success');
+                    } else {
+                        throw new Error('Rendered text was empty.');
+                    }
                 } else {
-                    logDebug('Parser failed to find AF_initDataCallback arrays.', 'error');
-                    throw new Error('No chat data parsed from HTML');
+                    throw new Error('No markdown received from Vercel.');
                 }
             } catch (err) {
                 logDebug(`Execution Failed: ${err.message}`, 'error');
                 hideStatus();
-                alert('⚠️ Extraction failed. Check the System Debugger in the bottom right for details.');
-                togglePasteDrawer(true);
+                alert('⚠️ Extraction failed. Check the System Debugger.');
             }
         }
 
