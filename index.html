@@ -864,7 +864,7 @@
         }
 
 
-        // Updated Extraction Logic (Authenticated HTML Route)
+        // Updated Extraction Logic (Multi-Stage HTML + Headless Fallback Route)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -878,7 +878,7 @@
                 const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
                 const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
-                logDebug(`Calling Vercel Endpoint : ${proxyUrl}`, 'warn');
+                logDebug(`Calling Vercel Endpoint (Stage 1 - Raw HTML): ${proxyUrl}`, 'warn');
         
                 const rawRes = await fetch(proxyUrl);
                 logDebug(`Vercel HTTP Status : ${rawRes.status}`, rawRes.ok ? 'success' : 'error');
@@ -890,21 +890,44 @@
                     throw new Error('Vercel Returned an Error');
                 }
 
-                // Check for HTML instead of markdown
+                if (data.finalUrl) {
+                    logDebug(`Resolved Redirect URL : ${data.finalUrl}`, 'info');
+                }
+
                 if (data.html) {
                     logDebug(`Payload Received. HTML Length: ${data.html.length} Characters.`, 'info');
                     
-                    // Pass the authenticated HTML into your Universal Hunter parser
-                    const turns = parseGoogleAFInitData(data.html);
-                    logDebug(`Parser Found ${turns.length} Conversation Turns.`, turns.length > 0 ? 'success' : 'warn');
+                    // Stage 1: Parse all AF_initDataCallback blocks in the HTML
+                    let turns = parseGoogleAFInitData(data.html);
+                    logDebug(`Stage 1 Parser Found ${turns.length} Conversation Turns.`, turns.length > 0 ? 'success' : 'warn');
 
                     if (turns.length > 0) {
                         buildFormattedChatLines(turns);
                         hideStatus();
                         logDebug('Chat successfully loaded into UI engine!', 'success');
-                    } else {
-                        throw new Error('Parser failed to extract chat strings from HTML.');
+                        return;
                     }
+
+                    // Stage 2: Automatic fallback if share.gemini.google served an unhydrated SPA shell
+                    logDebug('Stage 1 found 0 turns (SPA shell). Triggering Stage 2 Headless Render Fallback...', 'warn');
+                    showStatus('Rendering Dynamic SPA Chat 🪄 .....');
+
+                    const renderUrl = `${proxyUrl}&mode=rendered`;
+                    const renderRes = await fetch(renderUrl);
+                    const renderData = await renderRes.json();
+
+                    if (renderData.markdown && renderData.markdown.trim().length > 40) {
+                        logDebug(`Stage 2 Markdown Received: ${renderData.markdown.length} Characters.`, 'success');
+                        const mdTurns = cleanScrapedGeminiMarkdown(renderData.markdown);
+                        if (mdTurns.length > 0) {
+                            buildFormattedChatLines(mdTurns);
+                            hideStatus();
+                            logDebug('Chat successfully loaded via Stage 2 Renderer!', 'success');
+                            return;
+                        }
+                    }
+
+                    throw new Error('Both Stage 1 (AF_initDataCallback) and Stage 2 (Rendered Markdown) found 0 chat turns.');
                 } else {
                     throw new Error('No HTML data received from Vercel.');
                 }
@@ -969,128 +992,157 @@
         function parseGoogleAFInitData(html) {
             const turns = [];
             try {
-                // 1. Locate the script block dynamically
+                // Log the HTML <title> to verify what page Google actually served
+                const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+                if (titleMatch && typeof logDebug === 'function') {
+                    logDebug(`HTML Page Title : "${titleMatch[1].trim()}"`, 'info');
+                }
+
+                // 1. Find ALL <script> blocks that contain BOTH AF_initDataCallback AND data:
+                // This skips the ~8.5KB <head> bootstrap script that only defines the function!
                 const scripts = html.split(/<script/i);
-                let dataBlock = '';
-                let maxLength = 0;
-                
-                // Find the LARGEST script containing AF_initDataCallback
-                // This safely bypasses arbitrary length limits for short chats
+                const candidateBlocks = [];
+
                 for (let s of scripts) {
-                    if (s.includes('AF_initDataCallback') && s.length > maxLength) {
-                        maxLength = s.length;
-                        dataBlock = s;
+                    if (s.includes('AF_initDataCallback') && s.includes('data:')) {
+                        candidateBlocks.push(s);
                     }
                 }
 
-                if (!dataBlock) {
-                    throw new Error("Could not find AF_initDataCallback in the HTML.");
+                if (typeof logDebug === 'function') {
+                    logDebug(`Found ${candidateBlocks.length} AF_initDataCallback block(s) with "data:".`, candidateBlocks.length > 0 ? 'info' : 'warn');
                 }
 
-                // 2. Locate the exact start of the JSON array
-                let startIndex = dataBlock.indexOf('data:');
-                if (startIndex !== -1) {
-                    startIndex = dataBlock.indexOf('[', startIndex);
-                }
-                if (startIndex === -1) throw new Error("Could not find data array start ('[' after 'data:').");
-
-                // 3. Lexical Scanner: Extracts array & fixes [1,,2] syntax -> [1,null,2] safely
-                let bracketCount = 0;
-                let endIndex = -1;
-                let inString = false;
-                let escapeNext = false;
-                let cleanJson = "";
-
-                for (let i = startIndex; i < dataBlock.length; i++) {
-                    const char = dataBlock[i];
-                    
-                    if (escapeNext) { cleanJson += char; escapeNext = false; continue; }
-                    if (char === '\\') { cleanJson += char; escapeNext = true; continue; }
-                    if (char === '"') { inString = !inString; cleanJson += char; continue; }
-                    
-                    if (!inString) {
-                        if (char === '[') bracketCount++;
-                        if (char === ']') bracketCount--;
-                        
-                        if (char === ',') {
-                            cleanJson += char;
-                            // Peek ahead to fix empty array slots [,,] -> [,null,]
-                            let nextIdx = i + 1;
-                            while (nextIdx < dataBlock.length && /\s/.test(dataBlock[nextIdx])) nextIdx++;
-                            if (dataBlock[nextIdx] === ',' || dataBlock[nextIdx] === ']') {
-                                cleanJson += 'null';
-                            }
-                        } else {
-                            cleanJson += char;
-                        }
-
-                        if (bracketCount === 0) {
-                            endIndex = i;
-                            break;
-                        }
-                    } else {
-                        cleanJson += char;
-                    }
+                if (candidateBlocks.length === 0) {
+                    throw new Error("No AF_initDataCallback blocks with 'data:' found in HTML.");
                 }
 
-                if (endIndex === -1) throw new Error("Could not find end of JSON array ']'");
-
-                // 4. Parse the cleaned JSON
-                const parsedData = JSON.parse(cleanJson);
-
-                // 5. Recursively sweep the object for prompt/response texts
                 const rawTexts = [];
+
+                // Helper to recursively sweep arrays and objects for conversational strings
                 function extractText(obj) {
                     if (typeof obj === 'string') {
-                        // Filter out short strings, URLs, SVG paths, and UI artifacts
+                        const trimmed = obj.trim();
                         if (
-                            obj.length > 15 && 
-                            !obj.startsWith('http') && 
-                            !obj.includes('gstatic.com') && 
-                            !obj.includes('style=') &&
-                            !obj.includes('<path d=') && 
-                            !obj.includes('AF_initDataCallback')
+                            trimmed.length > 15 &&
+                            !trimmed.startsWith('http') &&
+                            !trimmed.startsWith('/') &&
+                            !trimmed.includes('gstatic.com') &&
+                            !trimmed.includes('googleusercontent.com') &&
+                            !trimmed.includes('style=') &&
+                            !trimmed.includes('<path d=') &&
+                            !trimmed.includes('AF_initDataCallback') &&
+                            !/^[a-zA-Z0-9_-]{16,64}$/.test(trimmed)
                         ) {
                             rawTexts.push(obj);
                         }
                     } else if (Array.isArray(obj)) {
                         obj.forEach(extractText);
+                    } else if (obj && typeof obj === 'object') {
+                        Object.values(obj).forEach(extractText);
                     }
                 }
-                
-                extractText(parsedData);
 
-                // 6. Clean and pair the extracted texts
+                // 2. Parse EVERY candidate AF_initDataCallback block (ds:0, ds:1, etc.)
+                for (let bIdx = 0; bIdx < candidateBlocks.length; bIdx++) {
+                    const dataBlock = candidateBlocks[bIdx];
+                    const keyMatch = dataBlock.match(/key\s*:\s*['"]([^'"]+)['"]/);
+                    const blockKey = keyMatch ? keyMatch[1] : `block_${bIdx}`;
+
+                    let startIndex = dataBlock.indexOf('data:');
+                    if (startIndex !== -1) {
+                        startIndex = dataBlock.indexOf('[', startIndex);
+                    }
+                    if (startIndex === -1) {
+                        if (typeof logDebug === 'function') {
+                            logDebug(`Skipping ${blockKey} (no '[' after 'data:').`, 'warn');
+                        }
+                        continue;
+                    }
+
+                    // 3. Lexical Scanner: Extracts array & fixes [1,,2] syntax -> [1,null,2]
+                    let bracketCount = 0;
+                    let endIndex = -1;
+                    let inString = false;
+                    let escapeNext = false;
+                    let cleanJson = "";
+
+                    for (let i = startIndex; i < dataBlock.length; i++) {
+                        const char = dataBlock[i];
+
+                        if (escapeNext) { cleanJson += char; escapeNext = false; continue; }
+                        if (char === '\\') { cleanJson += char; escapeNext = true; continue; }
+                        if (char === '"') { inString = !inString; cleanJson += char; continue; }
+
+                        if (!inString) {
+                            if (char === '[') bracketCount++;
+                            if (char === ']') bracketCount--;
+
+                            if (char === '[' || char === ',') {
+                                cleanJson += char;
+                                // Peek ahead to fix empty array slots [, ,] or [,] -> [null,]
+                                let nextIdx = i + 1;
+                                while (nextIdx < dataBlock.length && /\s/.test(dataBlock[nextIdx])) nextIdx++;
+                                if (dataBlock[nextIdx] === ',' || (char === ',' && dataBlock[nextIdx] === ']')) {
+                                    cleanJson += 'null';
+                                }
+                            } else {
+                                cleanJson += char;
+                            }
+
+                            if (bracketCount === 0) {
+                                endIndex = i;
+                                break;
+                            }
+                        } else {
+                            cleanJson += char;
+                        }
+                    }
+
+                    if (endIndex !== -1) {
+                        try {
+                            const parsedData = JSON.parse(cleanJson);
+                            const beforeCount = rawTexts.length;
+                            extractText(parsedData);
+                            const added = rawTexts.length - beforeCount;
+                            if (typeof logDebug === 'function') {
+                                logDebug(`Parsed ${blockKey} (${cleanJson.length} chars) -> extracted ${added} strings.`, added > 0 ? 'success' : 'info');
+                            }
+                        } catch (jsonErr) {
+                            if (typeof logDebug === 'function') {
+                                logDebug(`JSON.parse error in ${blockKey}: ${jsonErr.message}`, 'warn');
+                            }
+                        }
+                    }
+                }
+
+                // 4. Clean and pair the extracted texts
                 const uniqueTexts = [...new Set(rawTexts)];
-                
-                // Advanced Blacklist for Gemini UI elements
+
                 const blacklist = [
                     " ventajas y desventajas", "instant noodles", "Ireland trip", "Google LLC",
                     "Learn more", "Privacy Policy", "Terms of Service", "Send feedback",
-                    "Updates", "Help", "Opens in a new window"
+                    "Updates", "Help", "Opens in a new window", "Gemini Apps Activity"
                 ];
-                
+
                 const validChats = uniqueTexts.filter(text => {
                     for (let b of blacklist) if (text.includes(b)) return false;
                     return true;
                 });
 
-                // Format into alternating User/Gemini turns
                 if (validChats.length >= 2) {
                     for (let i = 0; i < validChats.length - 1; i += 2) {
-                        turns.push({ question: validChats[i], answer: validChats[i+1] });
+                        turns.push({ question: validChats[i], answer: validChats[i + 1] });
                     }
                 } else if (validChats.length === 1) {
                     turns.push({ question: "Extracted Document", answer: validChats[0] });
-                } else {
-                    throw new Error("Found JSON block, but extracted 0 chat strings. Chat may be heavily formatted or too short.");
                 }
 
             } catch (e) {
                 console.error("Lexical Parser Failed:", e);
-                if (typeof logDebug === 'function') logDebug(`Parser Exception: ${e.message}`, 'error');
+                if (typeof logDebug === 'function') logDebug(`Parser Notice: ${e.message}`, 'warn');
             }
-            
+
             return turns;
         }
         
