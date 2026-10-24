@@ -967,197 +967,139 @@
         
 
         function cleanScrapedGeminiMarkdown(md) {
-            let lines = md.replace(/\r/g, '').split('\n');
+            const lines = md.replace(/\r/g, '').split('\n');
+            const turns = [];
             
-            // Extensive Blacklist of Google/Jina UI elements to strip out of the Markdown
+            // 1. Nuke all UI garbage from the Markdown
             const junkPhrases = [
                 'Title:', 'URL Source:', 'Markdown Content:', 'Opens in a new window',
-                '[Sign in]', '![Image', '[Gemini]', 'Created with **Pro**',
-                'Gemini may display inaccurate info', '[About Gemini]', '[Get Gemini App]',
-                '[Subscriptions]', '[For Business]', 'Copy public link', 'Report',
-                'Copy prompt', 'Expand text', 'Download code', 'Copy code', 'Google apps',
-                'Sign in', 'https://accounts.google.com'
+                '[Sign in]', '![Image', '[Gemini]', 'Created with **Pro**', 'Gemini may display',
+                '[About Gemini]', '[Get Gemini App]', '[Subscriptions]', '[For Business]',
+                'Copy public link', 'Report', 'Copy prompt', 'Expand text', 'Download code',
+                'Copy code', 'Google apps', 'https://accounts.google.com', 'Sign in'
             ];
 
-            let contentLines = lines.filter(l => {
+            const cleanLines = lines.filter(l => {
                 const text = l.trim();
                 if (!text) return true; // Keep empty lines for spacing
-                for (let j of junkPhrases) {
-                    if (text.includes(j) || text === 'Sign in') return false;
-                }
-                return true;
+                for (let j of junkPhrases) if (text.includes(j) || text === 'Sign in') return false;
+                return !text.startsWith('# '); // Strip generic page titles
             });
 
-            // Find the start of actual chat content (skip the generated H1 title)
-            let startIndex = 0;
-            for (let i = 0; i < Math.min(15, contentLines.length); i++) {
-                if (contentLines[i].startsWith('# ')) {
-                    startIndex = i + 1;
+            // 2. Smart Q&A Splitter
+            let currentQ = [];
+            let currentA = [];
+            let inQuestion = false;
+
+            for (let i = 0; i < cleanLines.length; i++) {
+                const line = cleanLines[i];
+                const trimmed = line.trim();
+
+                // Detect new user prompt
+                if (trimmed.startsWith('##### You said') || trimmed.startsWith('**You said:**')) {
+                    if (currentQ.length > 0 || currentA.length > 0) {
+                        turns.push({
+                            question: currentQ.join('\n').trim() || 'User Prompt',
+                            answer: currentA.join('\n').trim()
+                        });
+                        currentQ = [];
+                        currentA = [];
+                    }
+                    inQuestion = true;
+                    continue; // Skip the "You said" header
+                }
+
+                if (inQuestion) {
+                    // Jina repeats the prompt text right after the header. Collect it until a blank line.
+                    if (trimmed === '' && cleanLines[i+1] && cleanLines[i+1].trim() !== '') {
+                        inQuestion = false; // First blank line after prompt text switches to Answer
+                    } else {
+                        currentQ.push(line);
+                    }
+                } else {
+                    currentA.push(line);
                 }
             }
 
-            const joined = contentLines.slice(startIndex).join('\n').trim();
-            if (!joined) return [];
+            // Push final turn
+            if (currentQ.length > 0 || currentA.length > 0) {
+                turns.push({
+                    question: currentQ.join('\n').trim() || 'User Prompt',
+                    answer: currentA.join('\n').trim()
+                });
+            }
 
-            // If it must fallback to Markdown, at least the UI junk is gone
-            return [{ question: 'Extracted Gemini Chat (Stage 2 Render)', answer: joined }];
+            return turns.length > 0 ? turns : [{ question: 'Extracted Document', answer: cleanLines.join('\n') }];
         }
 
 
         function parseGoogleAFInitData(html) {
             const turns = [];
+            const rawTexts = [];
+            
             try {
-                // Log the HTML <title> to verify what page Google served
-                const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
-                if (titleMatch && typeof logDebug === 'function') {
-                    logDebug(`HTML Page Title : "${titleMatch[1].trim()}"`, 'info');
-                }
+                if (typeof logDebug === 'function') logDebug(`Executing Bulletproof Regex Ripper on HTML...`, 'info');
 
-                // 1. Find ALL <script> blocks that contain AF_initDataCallback
-                // Notice we NO LONGER look for the "data:" keyword!
-                const scripts = html.split(/<script/i);
-                const candidateBlocks = [];
-
-                for (let s of scripts) {
-                    if (s.includes('AF_initDataCallback')) {
-                        candidateBlocks.push(s);
-                    }
-                }
-
-                if (typeof logDebug === 'function') {
-                    logDebug(`Found ${candidateBlocks.length} AF_initDataCallback script(s).`, candidateBlocks.length > 0 ? 'info' : 'warn');
-                }
-
-                if (candidateBlocks.length === 0) {
-                    throw new Error("No AF_initDataCallback blocks found in HTML.");
-                }
-
-                const rawTexts = [];
-
-                // Helper to recursively sweep arrays and objects for conversational strings
-                function extractText(obj) {
-                    if (typeof obj === 'string') {
-                        const trimmed = obj.trim();
-                        if (
-                            trimmed.length > 15 &&
-                            !trimmed.startsWith('http') &&
-                            !trimmed.startsWith('/') &&
-                            !trimmed.includes('gstatic.com') &&
-                            !trimmed.includes('googleusercontent.com') &&
-                            !trimmed.includes('style=') &&
-                            !trimmed.includes('<path d=') &&
-                            !trimmed.includes('AF_initDataCallback') &&
-                            !/^[a-zA-Z0-9_-]{16,64}$/.test(trimmed)
-                        ) {
-                            rawTexts.push(obj);
-                        }
-                    } else if (Array.isArray(obj)) {
-                        obj.forEach(extractText);
-                    } else if (obj && typeof obj === 'object') {
-                        Object.values(obj).forEach(extractText);
-                    }
-                }
-
-                // 2. Parse EVERY candidate AF_initDataCallback block
-                for (let bIdx = 0; bIdx < candidateBlocks.length; bIdx++) {
-                    const dataBlock = candidateBlocks[bIdx];
-                    const blockKey = `block_${bIdx}`;
-
-                    // AGNOSTIC BRACKET HUNTER:
-                    // Find the FIRST array '[' that appears AFTER the function call, ignoring variable names.
-                    let keywordIdx = dataBlock.indexOf('AF_initDataCallback');
-                    let startIndex = dataBlock.indexOf('[', keywordIdx);
-
-                    if (startIndex === -1) {
-                        if (typeof logDebug === 'function') logDebug(`Skipping ${blockKey} (no array '[' found).`, 'warn');
-                        continue;
-                    }
-
-                    // 3. Lexical Scanner: Extracts array & fixes [1,,2] syntax -> [1,null,2]
-                    let bracketCount = 0;
-                    let endIndex = -1;
-                    let inString = false;
-                    let escapeNext = false;
-                    let cleanJson = "";
-
-                    for (let i = startIndex; i < dataBlock.length; i++) {
-                        const char = dataBlock[i];
-
-                        if (escapeNext) { cleanJson += char; escapeNext = false; continue; }
-                        if (char === '\\') { cleanJson += char; escapeNext = true; continue; }
-                        if (char === '"') { inString = !inString; cleanJson += char; continue; }
-
-                        if (!inString) {
-                            if (char === '[') bracketCount++;
-                            if (char === ']') bracketCount--;
-
-                            if (char === '[' || char === ',') {
-                                cleanJson += char;
-                                // Peek ahead to fix empty array slots [, ,] or [,] -> [null,]
-                                let nextIdx = i + 1;
-                                while (nextIdx < dataBlock.length && /\s/.test(dataBlock[nextIdx])) nextIdx++;
-                                if (dataBlock[nextIdx] === ',' || (char === ',' && dataBlock[nextIdx] === ']')) {
-                                    cleanJson += 'null';
-                                }
-                            } else {
-                                cleanJson += char;
-                            }
-
-                            if (bracketCount === 0) {
-                                endIndex = i;
-                                break;
-                            }
-                        } else {
-                            cleanJson += char;
-                        }
-                    }
-
-                    if (endIndex !== -1) {
+                // Bypass JSON parsing entirely. Rip strings directly from the raw HTML payload.
+                const stringRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+                let match;
+                
+                while ((match = stringRegex.exec(html)) !== null) {
+                    let text = match[1];
+                    
+                    // Fast filter to ignore tiny strings, HTML tags, and URLs
+                    if (text.length > 25 && 
+                        !text.startsWith('http') && 
+                        !text.includes('<') && 
+                        !text.includes('AF_initDataCallback') &&
+                        !text.includes('gstatic.com')) {
+                        
                         try {
-                            const parsedData = JSON.parse(cleanJson);
-                            const beforeCount = rawTexts.length;
-                            extractText(parsedData);
-                            const added = rawTexts.length - beforeCount;
-                            if (typeof logDebug === 'function') {
-                                logDebug(`Parsed ${blockKey} (${cleanJson.length} chars) -> extracted ${added} strings.`, added > 0 ? 'success' : 'info');
+                            const decoded = JSON.parse('"' + text + '"').trim();
+                            // Final filter against hashes/IDs
+                            if (decoded.length > 25 && !/^[a-zA-Z0-9_-]{25,}$/.test(decoded)) {
+                                rawTexts.push(decoded);
                             }
-                        } catch (jsonErr) {
-                            if (typeof logDebug === 'function') {
-                                logDebug(`JSON.parse error in ${blockKey}: ${jsonErr.message}`, 'warn');
-                            }
-                        }
+                        } catch (e) {}
                     }
                 }
 
-                // 4. Clean and pair the extracted texts
+                // Deduplicate strings
                 const uniqueTexts = [...new Set(rawTexts)];
-
+                
+                // Blacklist remaining UI artifacts
                 const blacklist = [
                     " ventajas y desventajas", "instant noodles", "Ireland trip", "Google LLC",
                     "Learn more", "Privacy Policy", "Terms of Service", "Send feedback",
-                    "Updates", "Help", "Opens in a new window", "Gemini Apps Activity"
+                    "Gemini Apps Activity", "Gemini may display inaccurate info", "Sign in"
                 ];
-
+                
                 const validChats = uniqueTexts.filter(text => {
                     for (let b of blacklist) if (text.includes(b)) return false;
                     return true;
                 });
 
+                if (typeof logDebug === 'function') logDebug(`Regex Ripper extracted ${validChats.length} conversational blocks.`, validChats.length > 0 ? 'success' : 'warn');
+
+                // Group into Q&A
                 if (validChats.length >= 2) {
                     for (let i = 0; i < validChats.length - 1; i += 2) {
-                        turns.push({ question: validChats[i], answer: validChats[i + 1] });
+                        turns.push({ question: validChats[i], answer: validChats[i+1] });
                     }
                 } else if (validChats.length === 1) {
                     turns.push({ question: "Extracted Document", answer: validChats[0] });
+                } else {
+                    throw new Error("Regex Ripper found 0 valid conversational blocks.");
                 }
 
             } catch (e) {
-                console.error("Lexical Parser Failed:", e);
-                if (typeof logDebug === 'function') logDebug(`Parser Notice: ${e.message}`, 'warn');
+                console.error("Regex Ripper Failed:", e);
+                if (typeof logDebug === 'function') logDebug(`Parser Exception: ${e.message}`, 'error');
             }
-
+            
             return turns;
         }
+
         
 
         // ================================================================================
