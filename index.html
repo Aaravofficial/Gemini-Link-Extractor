@@ -944,61 +944,62 @@
 
         function parseGoogleAFInitData(html) {
             const turns = [];
-            
-            // STRATEGY 1: Relaxed Regex for JSON Data (Ignores whitespace and strict script tags)
-            const regex = /AF_initDataCallback\s*\(\s*(\{[\s\S]*?\})\s*\)\s*;/g;
-            let match;
-            let potentialStrings = [];
-            
-            while ((match = regex.exec(html)) !== null) {
-                const block = match[1];
-                if (block.length > 500) { // Look for large data blocks containing the chat
-                    // Extract all strings that look like conversational text & decode Unicode/Emojis
-                    const strings = [...block.matchAll(/"((?:[^"\\]|\\.)*)"/g)]
-                        .map(m => m[1]
-                            .replace(/\\n/g, '\n')
-                            .replace(/\\"/g, '"')
-                            .replace(/\\u([0-9a-fA-F]{4})/g, (full, hex) => String.fromCharCode(parseInt(hex, 16)))
-                        )
-                        .filter(s => 
-                            s.length > 20 && 
-                            !s.startsWith('http') && 
-                            !s.includes('gstatic.com') && 
-                            !s.includes('<svg') &&
-                            !s.includes('rgba(') &&
-                            !s.includes('M12,2C6.48') // Ignore SVG path data
-                        );
-                    
-                    if (strings.length > potentialStrings.length) {
-                        potentialStrings = strings; // Keep the block with the most conversational text
+            try {
+                // STRATEGY 1: High-Speed String Splitter (Zero Regex Backtracking)
+                const scriptParts = html.split('AF_initDataCallback');
+                let bestStrings = [];
+
+                for (let i = 1; i < scriptParts.length; i++) {
+                    const block = scriptParts[i].split('</script>')[0];
+
+                    // Only process large chunks of data
+                    if (block.length > 1000) {
+                        // Safe, fast regex strictly for capturing strings inside quotes
+                        const fastRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
+                        let match;
+                        const blockStrings = [];
+
+                        while ((match = fastRegex.exec(block)) !== null) {
+                            let s = match[1];
+                            // Filter out raw SVG data, URLs, and tiny strings
+                            if (s.length > 25 && !s.includes('gstatic.com') && !s.includes('<svg') && !s.startsWith('http') && !s.includes('rgba(')) {
+                                s = s.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                                try {
+                                    // Safely decode unicode characters and emojis
+                                    s = s.replace(/\\u([0-9a-fA-F]{4})/g, (full, hex) => String.fromCharCode(parseInt(hex, 16)));
+                                } catch(e) {}
+                                blockStrings.push(s);
+                            }
+                        }
+
+                        if (blockStrings.length > bestStrings.length) {
+                            bestStrings = blockStrings;
+                        }
                     }
                 }
-            }
 
-            if (potentialStrings.length >= 2) {
-                // Pair them up (Gemini stores Q then A sequentially)
-                for (let i = 0; i < potentialStrings.length - 1; i += 2) {
-                    turns.push({
-                        question: potentialStrings[i],
-                        answer: potentialStrings[i+1]
-                    });
+                if (bestStrings.length >= 2) {
+                    for (let i = 0; i < bestStrings.length - 1; i += 2) {
+                        turns.push({
+                            question: bestStrings[i],
+                            answer: bestStrings[i+1]
+                        });
+                    }
+                    return turns;
                 }
-                return turns;
-            }
 
-            // STRATEGY 2: DOM Parsing Fallback (If JSON structure completely changes)
-            try {
+                // STRATEGY 2: DOM Parsing Fallback (If Google hides the JSON entirely)
                 const doc = new DOMParser().parseFromString(html, 'text/html');
                 const bodyText = doc.body.innerText.trim();
                 
                 if (bodyText.length > 100) {
                     turns.push({
                         question: "Extracted Raw Chat (DOM Fallback)",
-                        answer: bodyText.replace(/\n{3,}/g, '\n\n') // Clean up excessive whitespace
+                        answer: bodyText.replace(/\n{3,}/g, '\n\n')
                     });
                 }
             } catch (e) {
-                console.error("DOM Parsing failed", e);
+                console.error("Parser failed:", e);
             }
 
             return turns;
