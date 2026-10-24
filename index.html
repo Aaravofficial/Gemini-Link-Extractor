@@ -414,12 +414,16 @@
     <div id="splitter-master-wrapper">
 
         <!-- SYSTEM DEBUG TERMINAL -->
-        <div id="debug-terminal" style="position: fixed; bottom: 20px; right: 20px; width: 450px; background: rgba(5, 8, 13, 0.95); border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 12px; z-index: 9999; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px);">
+        <div id="debug-terminal" style="position: fixed; bottom: 20px; right: 20px; width: 450px; background: rgba(5, 8, 13, 0.95); border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 12px; z-index: 9999; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px);">
             <div style="background: rgba(88, 166, 255, 0.15); padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(88, 166, 255, 0.3);">
                 <span style="color: #58a6ff; font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px;">⚙️ SYSTEM DEBUGGER</span>
-                <button onclick="document.getElementById('debug-terminal').style.display='none'" style="background: transparent; border: none; color: #8b949e; cursor: pointer; font-weight: bold;">✕</button>
+                <div style="display: flex; gap: 12px; align-items: center;">
+                    <button onclick="copyDebugLogs(this)" style="background: rgba(88, 166, 255, 0.2); border: 1px solid #58a6ff; color: #fff; border-radius: 4px; padding: 4px 10px; font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 600; cursor: pointer; transition: 0.2s;">📋 Copy Logs</button>
+                    <button onclick="document.getElementById('debug-terminal').style.display='none'" style="background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 14px; font-weight: bold;">✕</button>
+                </div>
             </div>
             <div id="debug-log-output" style="padding: 15px; height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a5d6ff; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+                <div style="color: #8b949e; font-style: italic;">[System Ready] Awaiting execution...</div>
             </div>
         </div>
         
@@ -886,6 +890,32 @@
                 togglePasteDrawer(true);
             }
         }
+
+        // Debugger Copy Function
+        function copyDebugLogs(btnElem) {
+            const logOutput = document.getElementById('debug-log-output');
+            if (!logOutput) return;
+    
+            // Extract plain text without HTML tags
+            const rawLogs = logOutput.innerText;
+    
+            navigator.clipboard.writeText(rawLogs).then(() => {
+                const originalText = btnElem.innerText;
+                btnElem.innerText = '✅   Copied  !!';
+                btnElem.style.background = '#58a6ff';
+                btnElem.style.color = '#090d13';
+        
+                setTimeout(() => {
+                    btnElem.innerText = originalText;
+                    btnElem.style.background = 'rgba(88, 166, 255, 0.2)';
+                    btnElem.style.color = '#fff';
+                }, 1500);
+            }).catch(err => {
+                alert("Clipboard  Write  Failed   :   " + err);
+            });
+        }
+
+        
 
         function cleanScrapedGeminiMarkdown(md) {
             const lines = md.replace(/\r/g, '').split('\n');
