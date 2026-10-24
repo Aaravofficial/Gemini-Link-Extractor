@@ -864,14 +864,14 @@
         }
 
 
-        // Updated Extraction Logic (Headless Browser Route)
+        // Updated Extraction Logic (Authenticated HTML Route)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
             document.getElementById('debug-log-output').innerHTML = '';
             logDebug(`Starting extraction for: ${urlInput}`, 'info');
-            showStatus('Rendering Chat via Headless Browser 🪄 .....');
+            showStatus('Fetching Authenticated Chat 🪄 .....');
 
             try {
                 // ✅ Your actual Vercel domain
@@ -890,27 +890,23 @@
                     throw new Error('Vercel Returned an Error');
                 }
 
-                if (data.markdown) {
-                    logDebug(`Render Complete! Text Length : ${data.markdown.length} Characters.`, 'success');
+                // Check for HTML instead of markdown
+                if (data.html) {
+                    logDebug(`Payload Received. HTML Length: ${data.html.length} Characters.`, 'info');
                     
-                    // Strip API headers and format
-                    let cleanText = data.markdown
-                        .replace(/Title:.*?\n/i, '')
-                        .replace(/URL Source:.*?\n/i, '')
-                        .replace(/Markdown Content:\n/i, '')
-                        .trim();
+                    // Pass the authenticated HTML into your Universal Hunter parser
+                    const turns = parseGoogleAFInitData(data.html);
+                    logDebug(`Parser Found ${turns.length} Conversation Turns.`, turns.length > 0 ? 'success' : 'warn');
 
-                    if (cleanText.length > 50) {
-                        // Pass the raw text into our 60FPS UI engine
-                        const turns = [{ question: "Extracted Shared Chat", answer: cleanText }];
+                    if (turns.length > 0) {
                         buildFormattedChatLines(turns);
                         hideStatus();
                         logDebug('Chat successfully loaded into UI engine!', 'success');
                     } else {
-                        throw new Error('Rendered text was empty.');
+                        throw new Error('Parser failed to extract chat strings from HTML.');
                     }
                 } else {
-                    throw new Error('No markdown received from Vercel.');
+                    throw new Error('No HTML data received from Vercel.');
                 }
             } catch (err) {
                 logDebug(`Execution Failed: ${err.message}`, 'error');
