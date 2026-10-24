@@ -856,25 +856,32 @@
 
             try {
                 // REPLACE WITH YOUR ACTUAL VERCEL APP URL
-                const myVercelDomain = 'gemini-fetcher-yourname.vercel.app'; 
-                const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
-        
-                logDebug(`Calling Vercel endpoint: ${proxyUrl}`, 'warn');
+                // Find this section inside extractFromGeminiLink()
+                try {
+                    // ❌ REMOVE the placeholder domain:
+                    // const myVercelDomain = 'gemini-fetcher-yourname.vercel.app'; 
+    
+                    // ✅ REPLACE it with your actual Vercel domain from the dashboard:
+                    const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
+    
+                    const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
+    
+                    logDebug(`Calling  Vercel  Endpoint   :   ${proxyUrl}`, 'warn');
         
                 const rawRes = await fetch(proxyUrl);
-                logDebug(`Vercel HTTP Status: ${rawRes.status} ${rawRes.statusText}`, rawRes.ok ? 'success' : 'error');
+                logDebug(`Vercel  HTTP  Status   :   ${rawRes.status} ${rawRes.statusText}`, rawRes.ok ? 'success' : 'error');
         
                 const data = await rawRes.json();
         
                 if (!rawRes.ok) {
-                    logDebug(`Vercel Backend Error: ${JSON.stringify(data)}`, 'error');
-                    throw new Error('Vercel returned an error');
+                    logDebug(`Vercel  Backend  Error   :   ${JSON.stringify(data)}`, 'error');
+                    throw new Error('Vercel  Returned  an  Error');
                 }
 
-                logDebug(`Payload received. HTML length: ${data.html ? data.html.length : 0} characters.`, 'info');
+                logDebug(`Payload  Received  .   HTML  Length   :   ${data.html ? data.html.length : 0}   Characters  .`, 'info');
 
                 const turns = parseGoogleAFInitData(data.html || '');
-                logDebug(`Parser found ${turns.length} conversation turns.`, turns.length > 0 ? 'success' : 'warn');
+                logDebug(`Parser  Found   ${turns.length}   Conversation  Turns  .`, turns.length > 0 ? 'success' : 'warn');
 
                 if (turns.length > 0) {
                     buildFormattedChatLines(turns);
