@@ -846,11 +846,17 @@
 
                 // Stage 2: Fallback Raw HTML Proxy + AF_initDataCallback Parser
                 showStatus('Trying  Fallback  HTML  Parser   😇  .....');
-                const proxyUrl = `[https://api.allorigins.win/get?url=$](https://api.allorigins.win/get?url=$){encodeURIComponent(urlInput)}`;
+                // Replace the old public proxy URL:
+                // const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`;
+
+                //   With your new private Vercel URL:
+                const proxyUrl = `https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
+
                 const rawRes = await fetch(proxyUrl);
                 if (rawRes.ok) {
                     const data = await rawRes.json();
-                    const turns = parseGoogleAFInitData(data.contents || '');
+                    // Update data.contents to data.html based on your Vercel response
+                    const turns = parseGoogleAFInitData(data.html); 
                     if (turns.length > 0) {
                         buildFormattedChatLines(turns);
                         hideStatus();
