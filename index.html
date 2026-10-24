@@ -413,6 +413,16 @@
     <!--   MASTER  EXTRACTOR  &  TEXT  SPLITTER  WRAPPER   -->
     <div id="splitter-master-wrapper">
 
+        <!-- SYSTEM DEBUG TERMINAL -->
+        <div id="debug-terminal" style="position: fixed; bottom: 20px; right: 20px; width: 450px; background: rgba(5, 8, 13, 0.95); border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 12px; z-index: 9999; display: none; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px);">
+            <div style="background: rgba(88, 166, 255, 0.15); padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(88, 166, 255, 0.3);">
+                <span style="color: #58a6ff; font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px;">⚙️ SYSTEM DEBUGGER</span>
+                <button onclick="document.getElementById('debug-terminal').style.display='none'" style="background: transparent; border: none; color: #8b949e; cursor: pointer; font-weight: bold;">✕</button>
+            </div>
+            <div id="debug-log-output" style="padding: 15px; height: 250px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #a5d6ff; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;">
+            </div>
+        </div>
+        
         <!-- Top Bar -->
         <div class="top-action-bar">
             <div class="brand-badge">🪄   GEMINI  CHAT  VIEWER  &  SPLITTER  |  AaRAv</div>
@@ -814,62 +824,65 @@
             document.getElementById('status-modal').classList.remove('active');
         }
 
+        // Debug Logger Function
+        function logDebug(message, type = 'info') {
+            const terminal = document.getElementById('debug-terminal');
+            const output = document.getElementById('debug-log-output');
+            terminal.style.display = 'flex';
+    
+            let color = '#a5d6ff'; // default blue
+            if (type === 'error') color = '#ff7b72'; // red
+            if (type === 'success') color = '#7ee787'; // green
+            if (type === 'warn') color = '#ffa657'; // orange
+
+            const time = new Date().toLocaleTimeString();
+            output.innerHTML += `<div style="color: ${color}; margin-bottom: 6px;">[${time}] ${escHtml(message)}</div>`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        // Updated Extraction Logic
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
-            if (!urlInput) {
-                alert('🪄 Please paste a Gemini Share Link first!');
-                return;
-            }
+            if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
-            showStatus('Initialising  Secure  Extraction   ☁️  .....');
+            // CLEAR PREVIOUS LOGS
+            document.getElementById('debug-log-output').innerHTML = '';
+            logDebug(`Starting extraction for: ${urlInput}`, 'info');
+            showStatus('Fetching Rendered Gemini Chat 🪄 .....');
 
             try {
-                // Stage 1: Try Jina Reader Headless Renderer (Returns clean Markdown with CORS *)
-                showStatus('Fetching  Rendered  Gemini  Chat   🪄  .....');
-                const jinaUrl = `[https://r.jina.ai/$](https://r.jina.ai/$){urlInput}`;
-                const jinaRes = await fetch(jinaUrl, {
-                    headers: { 'Accept': 'text/plain' }
-                });
-
-                if (jinaRes.ok) {
-                    const mdText = await jinaRes.text();
-                    const cleaned = cleanScrapedGeminiMarkdown(mdText);
-                    if (cleaned && cleaned.length > 0) {
-                        showStatus('Applying  2-Row  &  4-Row  Formatting   🎉  .....');
-                        setTimeout(() => {
-                            buildFormattedChatLines(cleaned);
-                            hideStatus();
-                        }, 350);
-                        return;
-                    }
-                }
-
-                // Stage 2: Fallback Raw HTML Proxy + AF_initDataCallback Parser
-                showStatus('Trying  Fallback  HTML  Parser   😇  .....');
-                // Replace the old public proxy URL:
-                // const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(urlInput)}`;
-
-                //   With your new private Vercel URL:
-                const proxyUrl = `https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
-
+                // REPLACE WITH YOUR ACTUAL VERCEL APP URL
+                const myVercelDomain = 'gemini-fetcher-yourname.vercel.app'; 
+                const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
+        
+                logDebug(`Calling Vercel endpoint: ${proxyUrl}`, 'warn');
+        
                 const rawRes = await fetch(proxyUrl);
-                if (rawRes.ok) {
-                    const data = await rawRes.json();
-                    // Update data.contents to data.html based on your Vercel response
-                    const turns = parseGoogleAFInitData(data.html); 
-                    if (turns.length > 0) {
-                        buildFormattedChatLines(turns);
-                        hideStatus();
-                        return;
-                    }
+                logDebug(`Vercel HTTP Status: ${rawRes.status} ${rawRes.statusText}`, rawRes.ok ? 'success' : 'error');
+        
+                const data = await rawRes.json();
+        
+                if (!rawRes.ok) {
+                    logDebug(`Vercel Backend Error: ${JSON.stringify(data)}`, 'error');
+                    throw new Error('Vercel returned an error');
                 }
 
-                hideStatus();
-                alert('⚠️ Google blocked public proxy access for this link or the link requires sign-in.\n\nClick "📋 Paste Chat / Text" at the top to paste the conversation directly and format it instantly!');
-                togglePasteDrawer(true);
+                logDebug(`Payload received. HTML length: ${data.html ? data.html.length : 0} characters.`, 'info');
+
+                const turns = parseGoogleAFInitData(data.html || '');
+                logDebug(`Parser found ${turns.length} conversation turns.`, turns.length > 0 ? 'success' : 'warn');
+
+                if (turns.length > 0) {
+                    buildFormattedChatLines(turns);
+                    hideStatus();
+                } else {
+                    logDebug('Parser failed to find AF_initDataCallback arrays.', 'error');
+                    throw new Error('No chat data parsed from HTML');
+                }
             } catch (err) {
+                logDebug(`Execution Failed: ${err.message}`, 'error');
                 hideStatus();
-                alert('⚠️ Could not reach proxy server. Opening Paste Box so you can paste the chat directly!');
+                alert('⚠️ Extraction failed. Check the System Debugger in the bottom right for details.');
                 togglePasteDrawer(true);
             }
         }
