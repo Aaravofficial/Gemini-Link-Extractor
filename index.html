@@ -19,6 +19,25 @@
             color: #c9d1d9;
         }
 
+        /* Prevent UI highlighting */
+        body { 
+            -webkit-user-select: none; 
+            user-select: none; 
+        }
+        
+        /* Allow highlighting ONLY inside the chat boxes and inputs */
+        .v-content, .paste-area, .url-input-box { 
+            -webkit-user-select: text; 
+            user-select: text; 
+        }
+        
+        /* Keep line numbers unselectable */
+        .v-gutter, .rules-status-bar, .top-action-bar { 
+            -webkit-user-select: none; 
+            user-select: none; 
+        }
+
+        
         /*   <---   GPU-FRIENDLY  STATIC  AMBIENT  GLOWS  (ZERO  REPAINT  LAG)   --->   */
         .ambient-bg {
             position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -945,34 +964,27 @@
         function parseGoogleAFInitData(html) {
             const turns = [];
             try {
-                // STRATEGY 1: High-Speed String Splitter (Zero Regex Backtracking)
+                // STRATEGY 1: High-Speed String Splitter
                 const scriptParts = html.split('AF_initDataCallback');
                 let bestStrings = [];
 
                 for (let i = 1; i < scriptParts.length; i++) {
-                    // ✅ FIXED: Safely split the script tag without breaking the HTML parser
                     const block = scriptParts[i].split('</' + 'script>')[0];
-
-                    // Only process large chunks of data
                     if (block.length > 1000) {
-                        // Safe, fast regex strictly for capturing strings inside quotes
                         const fastRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
                         let match;
                         const blockStrings = [];
 
                         while ((match = fastRegex.exec(block)) !== null) {
                             let s = match[1];
-                            // Filter out raw SVG data, URLs, and tiny strings
                             if (s.length > 25 && !s.includes('gstatic.com') && !s.includes('<svg') && !s.startsWith('http') && !s.includes('rgba(')) {
                                 s = s.replace(/\\n/g, '\n').replace(/\\"/g, '"');
                                 try {
-                                    // Safely decode unicode characters and emojis
                                     s = s.replace(/\\u([0-9a-fA-F]{4})/g, (full, hex) => String.fromCharCode(parseInt(hex, 16)));
                                 } catch(e) {}
                                 blockStrings.push(s);
                             }
                         }
-
                         if (blockStrings.length > bestStrings.length) {
                             bestStrings = blockStrings;
                         }
@@ -981,28 +993,29 @@
 
                 if (bestStrings.length >= 2) {
                     for (let i = 0; i < bestStrings.length - 1; i += 2) {
-                        turns.push({
-                            question: bestStrings[i],
-                            answer: bestStrings[i+1]
-                        });
+                        turns.push({ question: bestStrings[i], answer: bestStrings[i+1] });
                     }
                     return turns;
                 }
 
-                // STRATEGY 2: DOM Parsing Fallback (If Google hides the JSON entirely)
+                // STRATEGY 2: Strict DOM Fallback (Zero Code Bleed)
                 const doc = new DOMParser().parseFromString(html, 'text/html');
-                const bodyText = doc.body.innerText.trim();
                 
-                if (bodyText.length > 100) {
+                // CRITICAL FIX: Destroy all code tags before extracting text
+                doc.querySelectorAll('script, style, meta, link, noscript, svg').forEach(el => el.remove());
+                
+                let bodyText = doc.body.innerText.trim();
+                if (bodyText.length > 50) {
+                    // Clean up Google's UI button text
+                    bodyText = bodyText.replace(/Copy\n/g, '').replace(/Show draft\n/g, '').replace(/\n{3,}/g, '\n\n');
                     turns.push({
-                        question: "Extracted Raw Chat (DOM Fallback)",
-                        answer: bodyText.replace(/\n{3,}/g, '\n\n')
+                        question: "Extracted Raw Chat",
+                        answer: bodyText
                     });
                 }
             } catch (e) {
                 console.error("Parser failed:", e);
             }
-
             return turns;
         }
         
@@ -1023,7 +1036,7 @@
             phantom.style.height = `${totalHeight}px`;
             rowsLayer.style.fontSize = `${fontSize}px`;
             rowsLayer.style.lineHeight = `${rowHeight}px`;
-            document.getElementById('zoom-indicator').innerText = `🔍  Zoom: ${fontSize}px  |  ⚡ 60FPS Virtual Engine`;
+            document.getElementById('zoom-indicator').innerText = `🔍  Zoom   :   ${fontSize}px  |  ⚡ 60FPS Virtual Engine`;
         }
 
         let scrollTicking = false;
