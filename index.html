@@ -651,7 +651,8 @@
                             currentBlockLang = trimmed.slice(3).trim() || 'text';
                             currentBlockRawLines = [];
 
-                            const headerRaw = ```` + currentBlockLang;
+                            // FIXED: Use standard quotes for the backticks to prevent Tagged Template execution
+                            const headerRaw = '```' + currentBlockLang;
                             out.push({
                                 raw: headerRaw,
                                 html: `<span style="color:#58a6ff;font-weight:700;">╭─── 📋 COPIABLE BLOCK [${escHtml(currentBlockLang.toUpperCase())}]</span>` +
@@ -967,25 +968,25 @@
 
         function cleanScrapedGeminiMarkdown(md) {
             const lines = md.replace(/\r/g, '').split('\n');
-            // Remove Jina metadata headers and Gemini boilerplate footer
+            
+            // Remove Jina's auto-generated metadata headers
             const contentLines = lines.filter(l =>
                 !l.startsWith('Title:') &&
                 !l.startsWith('URL Source:') &&
                 !l.startsWith('Markdown Content:') &&
                 !l.includes('Opens in a new window')
             );
+            
             const joined = contentLines.join('\n').trim();
             if (!joined) return [];
 
-            // Split into Q&A turns if user prompts are detected, otherwise treat first block as Question
-            const paragraphs = joined.split(/\n{2,}/);
-            if (paragraphs.length >= 2) {
-                return [{
-                    question: paragraphs[0],
-                    answer: paragraphs.slice(1).join('\n\n')
-                }];
-            }
-            return [{ question: 'Extracted Gemini Link Prompt', answer: joined }];
+            // For massive fallback documents (70KB+), wrap the entire payload 
+            // into a single turn so the UI's code block and step-rendering engines
+            // can parse the markdown smoothly from top to bottom.
+            return [{ 
+                question: 'Extracted Gemini Document (Stage 2 Fallback Render) 🪄', 
+                answer: joined 
+            }];
         }
 
 
