@@ -964,58 +964,85 @@
         function parseGoogleAFInitData(html) {
             const turns = [];
             try {
-                // STRATEGY 1: High-Speed String Splitter
-                const scriptParts = html.split('AF_initDataCallback');
+                // STRATEGY: Universal Data-String Hunter
+                // Google constantly changes variables (AF_initDataCallback, WIZ_global_data, etc).
+                // This ignores the variable names and scans every script tag on the page 
+                // for the largest cluster of human text.
+                
+                const scriptTags = html.split(/<script/i);
                 let bestStrings = [];
 
-                for (let i = 1; i < scriptParts.length; i++) {
-                    const block = scriptParts[i].split('</' + 'script>')[0];
-                    if (block.length > 1000) {
+                for (let i = 1; i < scriptTags.length; i++) {
+                    const block = scriptTags[i].split(/<\/script>/i)[0];
+
+                    // Gemini payload scripts are massive (usually > 5,000 characters)
+                    if (block.length > 5000) {
                         const fastRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"/g;
                         let match;
                         const blockStrings = [];
 
                         while ((match = fastRegex.exec(block)) !== null) {
                             let s = match[1];
-                            if (s.length > 25 && !s.includes('gstatic.com') && !s.includes('<svg') && !s.startsWith('http') && !s.includes('rgba(')) {
-                                s = s.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+                            
+                            // Real conversational text is long, has spaces, and isn't pure code
+                            if (
+                                s.length > 15 && 
+                                s.includes(' ') && 
+                                !s.startsWith('http') && 
+                                !s.includes('gstatic.com') && 
+                                !s.includes('<svg') && 
+                                !s.includes('rgba(') && 
+                                !s.includes('function(') &&
+                                !s.includes('use strict') &&
+                                !s.match(/^[M0-9L\s,.\-A-Za-z]+Z$/) // Ignore SVG paths
+                            ) {
+                                s = s.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\t/g, '\t');
                                 try {
-                                    s = s.replace(/\\u([0-9a-fA-F]{4})/g, (full, hex) => String.fromCharCode(parseInt(hex, 16)));
+                                    // Safely decode Unicode emojis and symbols
+                                    s = s.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
                                 } catch(e) {}
-                                blockStrings.push(s);
+                                
+                                blockStrings.push(s.trim());
                             }
                         }
+
+                        // The script containing the highest number of valid strings is our chat data
                         if (blockStrings.length > bestStrings.length) {
                             bestStrings = blockStrings;
                         }
                     }
                 }
 
-                if (bestStrings.length >= 2) {
-                    for (let i = 0; i < bestStrings.length - 1; i += 2) {
-                        turns.push({ question: bestStrings[i], answer: bestStrings[i+1] });
-                    }
-                    return turns;
-                }
+                if (bestStrings.length > 0) {
+                    // Google's state object duplicates the exact same strings 2 or 3 times. Deduplicate them.
+                    const uniqueStrings = [...new Set(bestStrings)];
+                    
+                    // Remove remaining generic Google UI text
+                    const finalStrings = uniqueStrings.filter(s => 
+                        !s.includes('Terms of Service') && 
+                        !s.includes('Privacy Policy') &&
+                        !s.includes('Google LLC')
+                    );
 
-                // STRATEGY 2: Strict DOM Fallback (Zero Code Bleed)
-                const doc = new DOMParser().parseFromString(html, 'text/html');
-                
-                // CRITICAL FIX: Destroy all code tags before extracting text
-                doc.querySelectorAll('script, style, meta, link, noscript, svg').forEach(el => el.remove());
-                
-                let bodyText = doc.body.innerText.trim();
-                if (bodyText.length > 50) {
-                    // Clean up Google's UI button text
-                    bodyText = bodyText.replace(/Copy\n/g, '').replace(/Show draft\n/g, '').replace(/\n{3,}/g, '\n\n');
-                    turns.push({
-                        question: "Extracted Raw Chat",
-                        answer: bodyText
-                    });
+                    if (finalStrings.length > 0) {
+                        // Usually alternating Prompt -> Response -> Prompt -> Response
+                        if (finalStrings.length % 2 === 0) {
+                            for (let i = 0; i < finalStrings.length - 1; i += 2) {
+                                turns.push({ question: finalStrings[i], answer: finalStrings[i+1] });
+                            }
+                        } else {
+                            // If odd, stack them sequentially so NO chat data is ever lost
+                            turns.push({ 
+                                question: "Extracted Conversation", 
+                                answer: finalStrings.join('\n\n---\n\n') 
+                            });
+                        }
+                    }
                 }
             } catch (e) {
                 console.error("Parser failed:", e);
             }
+
             return turns;
         }
         
