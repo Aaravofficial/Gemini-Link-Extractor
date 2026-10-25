@@ -1339,11 +1339,19 @@
             });
         }
 
-        // 1-Click Save Full Document in Any Extension
+
+        // 1-Click Save Full Document (Visual HTML if .html, Plain Text if .txt/.md/.py)
         function downloadSingleFullFile() {
-            const filename = document.getElementById('single-file-name').value.trim() || 'gemini_chat.txt';
-            const fullText = VIRTUAL_LINES.map(l => l.raw).join('\n');
-            triggerBrowserDownload(fullText, filename);
+            const filename = document.getElementById('single-file-name').value.trim() || 'gemini_chat.html';
+            const isHtml = /\.html?$/i.test(filename);
+
+            if (isHtml) {
+                const fullHtml = buildStandaloneHtmlDocument(VIRTUAL_LINES, 1, filename);
+                triggerBrowserDownload(fullHtml, filename, 'text/html;charset=utf-8');
+            } else {
+                const fullText = VIRTUAL_LINES.map(l => l.raw).join('\n');
+                triggerBrowserDownload(fullText, filename, 'text/plain;charset=utf-8');
+            }
         }
 
         // Dynamic Split File Generator (Manual or 1-Click Auto-Equal Split)
@@ -1359,7 +1367,7 @@
 
             const totalLines = VIRTUAL_LINES.length;
             const chunkSize = Math.ceil(totalLines / count);
-            let ext = document.getElementById('auto-ext-input').value.trim() || '.txt';
+            let ext = document.getElementById('auto-ext-input').value.trim() || '.html';
             if (!ext.startsWith('.')) ext = '.' + ext;
 
             for (let i = 1; i <= count; i++) {
@@ -1391,12 +1399,12 @@
             return 'th';
         }
 
-        function transformButtonToInputs(buttonElement, index, ext = '.txt') {
+        function transformButtonToInputs(buttonElement, index, ext = '.html') {
             const wrapper = document.createElement('div');
             wrapper.className = 'split-inputs-row';
             wrapper.innerHTML = `
                 <input type="text" class="split-text-input input-lines" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )">
-                <input type="text" class="split-text-input input-filename" placeholder="🗞️   Enter  Filename   ( e.g.  bot_part${index}${ext} )">
+                <input type="text" class="split-text-input input-filename" placeholder="🗞️   Enter  Filename   ( e.g.  chat_part_${index}${ext} )">
             `;
             buttonElement.replaceWith(wrapper);
         }
@@ -1421,11 +1429,18 @@
                 if (!isNaN(start) && !isNaN(end)) {
                     const startIndex = Math.max(0, start - 1);
                     const endIndex = Math.min(VIRTUAL_LINES.length, end);
-                    const extractedData = VIRTUAL_LINES.slice(startIndex, endIndex).map(l => l.raw).join('\n');
+                    const sliceLines = VIRTUAL_LINES.slice(startIndex, endIndex);
+                    const isHtml = /\.html?$/i.test(filename);
 
                     setTimeout(() => {
-                        triggerBrowserDownload(extractedData, filename);
-                    }, idx * 140);
+                        if (isHtml) {
+                            const htmlDoc = buildStandaloneHtmlDocument(sliceLines, startIndex + 1, filename);
+                            triggerBrowserDownload(htmlDoc, filename, 'text/html;charset=utf-8');
+                        } else {
+                            const rawText = sliceLines.map(l => l.raw).join('\n');
+                            triggerBrowserDownload(rawText, filename, 'text/plain;charset=utf-8');
+                        }
+                    }, idx * 160);
                     successCount++;
                 }
             });
@@ -1433,12 +1448,12 @@
             if (successCount > 0) {
                 setTimeout(() => {
                     alert(`🎉   Successfully  Splitted  &  Downloaded   ${successCount}   Files   !!`);
-                }, successCount * 150 + 100);
+                }, successCount * 170 + 120);
             }
         }
 
-        function triggerBrowserDownload(content, filename) {
-            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        function triggerBrowserDownload(content, filename, mimeType = 'text/plain;charset=utf-8') {
+            const blob = new Blob([content], { type: mimeType });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1448,6 +1463,174 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
+
+        // Builds a 100% Self-Contained Visual + AI-Readable Standalone HTML File
+        function buildStandaloneHtmlDocument(linesSlice, startLineNumber = 1, titleName = 'gemini_chat.html') {
+            const endLineNumber = startLineNumber + linesSlice.length - 1;
+            const serializedBlocks = JSON.stringify(CODE_BLOCKS_MAP).replace(/</g, '\\u003c');
+
+            let rowsHtml = '';
+            for (let i = 0; i < linesSlice.length; i++) {
+                const item = linesSlice[i];
+                const lineNum = startLineNumber + i;
+                rowsHtml += `<div class="v-row type-${item.type}">` +
+                            `<span class="v-gutter" data-ln="${lineNum}"></span>` +
+                            `<div class="v-content">${item.html || ''}</div>` +
+                            `</div>\n`;
+            }
+
+            return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1280">
+    <title>${escHtml(titleName)} | Gemini Chat Viewer | AaRAv</title>
+    <!-- AI-READABLE TRANSCRIPT METADATA: This standalone HTML document contains a clean Question & Response conversation transcript. Line numbers are stored in CSS data-ln attributes so AI models read pure, uninterrupted text. -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #0d1117; color: #c9d1d9;
+            font-family: 'Montserrat', sans-serif; padding: 28px 20px 60px 20px;
+            display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+        }
+        .export-top-bar {
+            width: 100%; max-width: 1220px; background: #12171f;
+            border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+            padding: 14px 22px; margin-bottom: 18px;
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45); user-select: none;
+        }
+        .export-badge {
+            color: #c9a255; font-size: 13px; font-weight: 700; letter-spacing: 1.2px;
+        }
+        .export-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .export-btn {
+            background: rgba(88, 166, 255, 0.14); color: #58a6ff; border: 1px solid #58a6ff;
+            padding: 7px 14px; border-radius: 6px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 11.5px; font-weight: 600;
+        }
+        .export-btn:hover { background: #58a6ff; color: #090d13; }
+        .export-viewport {
+            width: 100%; max-width: 1220px; background: #090d13;
+            border: 1px solid rgba(88, 166, 255, 0.22); border-radius: 12px;
+            overflow-x: auto; box-shadow: 0 20px 45px rgba(0,0,0,0.55);
+            font-size: 14px; line-height: 24px;
+        }
+        .v-row {
+            display: flex; align-items: center; min-width: 100%; width: max-content;
+            min-height: 24px; font-family: 'JetBrains Mono', monospace; white-space: pre;
+        }
+        body.wrap-mode .v-row { width: 100%; white-space: pre-wrap; word-break: break-word; }
+        .v-row:hover { background: rgba(88, 166, 255, 0.04); }
+        .v-gutter {
+            width: 68px; min-width: 68px; min-height: 24px; align-self: stretch;
+            display: inline-flex; align-items: center; justify-content: flex-end;
+            padding-right: 14px; background: #06090f; color: #6e7681;
+            border-right: 1px solid rgba(255,255,255,0.07);
+            user-select: none; -webkit-user-select: none; font-size: 0.9em;
+            position: sticky; left: 0; z-index: 3;
+        }
+        .v-gutter::before { content: attr(data-ln); }
+        .v-content {
+            flex: 1; min-height: 24px; display: inline-flex; align-items: center;
+            padding: 0 20px; color: #c9d1d9; position: relative;
+        }
+        .v-row.type-question-header {
+            background: linear-gradient(90deg, rgba(227, 179, 65, 0.18) 0%, rgba(227, 179, 65, 0.02) 85%);
+            border-left: 3px solid #e3b341;
+        }
+        .v-row.type-question-header .v-gutter { color: #e3b341; border-right-color: rgba(227, 179, 65, 0.45); font-weight: 700; }
+        .v-row.type-question-header .v-content { color: #ffd866; font-weight: 700; letter-spacing: 0.8px; }
+        .v-row.type-question { background: rgba(201, 162, 85, 0.05); }
+        .v-row.type-question .v-gutter { color: #d29922; border-right-color: rgba(227, 179, 65, 0.25); }
+        .v-row.type-question .v-content { color: #fff8e7; font-weight: 500; }
+        .v-row.type-response-header {
+            background: linear-gradient(90deg, rgba(46, 160, 67, 0.18) 0%, rgba(88, 166, 255, 0.02) 85%);
+            border-left: 3px solid #3fb950;
+        }
+        .v-row.type-response-header .v-gutter { color: #7ee787; border-right-color: rgba(63, 185, 80, 0.45); font-weight: 700; }
+        .v-row.type-response-header .v-content { color: #7ee787; font-weight: 700; letter-spacing: 0.8px; }
+        .v-row.type-heading { background: rgba(88, 166, 255, 0.05); }
+        .v-row.type-heading .v-content { color: #79c0ff; font-weight: 700; letter-spacing: 0.3px; }
+        .heading-bar { color: #58a6ff; margin-right: 10px; font-weight: 700; }
+        .v-row.type-normal .v-content, .v-row.type-bullet .v-content { color: #e6edf3; }
+        .v-row.type-step-start .v-content, .v-row.type-step-body .v-content { padding-left: 42px; color: #e6edf3; }
+        .step-spine {
+            position: absolute; left: 18px; top: 0; bottom: 0; width: 2px;
+            background: linear-gradient(180deg, #bc8cff, #58a6ff);
+            box-shadow: 0 0 8px rgba(188, 140, 255, 0.45);
+        }
+        .step-dot {
+            position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #0d1117; border: 2.5px solid #bc8cff; box-shadow: 0 0 8px #bc8cff; z-index: 2;
+        }
+        .v-row.type-code-header { background: rgba(88, 166, 255, 0.14); border-top: 1px solid rgba(88, 166, 255, 0.35); }
+        .v-row.type-code-line { background: rgba(1, 4, 9, 0.88); }
+        .v-row.type-code-line .v-gutter { background: #04060a; color: #58a6ff; border-right: 2px solid #58a6ff; }
+        .v-row.type-code-line .v-content { color: #a5d6ff; }
+        .v-row.type-code-footer { background: rgba(88, 166, 255, 0.08); border-bottom: 1px solid rgba(88, 166, 255, 0.35); }
+        .inline-copy-btn {
+            background: rgba(88, 166, 255, 0.2); color: #fff; border: 1px solid #58a6ff;
+            border-radius: 5px; padding: 2px 10px; margin-left: 14px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600;
+        }
+        .inline-copy-btn:hover { background: #58a6ff; color: #090d13; }
+        .tok-bold { color: #ffd866; font-weight: 700; }
+        .tok-italic { color: #a5d6ff; font-style: italic; }
+        .tok-code {
+            background: rgba(255, 123, 114, 0.14); color: #ff7b72;
+            padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.28); font-size: 0.94em;
+        }
+        .tok-bullet { color: #58a6ff; font-weight: 700; margin-right: 8px; }
+        .tok-sub-bullet { color: #bc8cff; font-weight: 700; margin-right: 8px; }
+        .tok-step-num { color: #d2a8ff; font-weight: 700; margin-right: 6px; }
+        .tok-quote { color: #a5d6ff; font-style: italic; border-left: 3px solid #58a6ff; padding-left: 12px; }
+    </style>
+</head>
+<body>
+    <div class="export-top-bar">
+        <div class="export-badge">🪄  ${escHtml(titleName)}   |   Lines ${startLineNumber} – ${endLineNumber}</div>
+        <div class="export-controls">
+            <button class="export-btn" onclick="changeZoom(-1)">➖</button>
+            <button class="export-btn" onclick="changeZoom(1)">➕</button>
+            <button class="export-btn" onclick="document.body.classList.toggle('wrap-mode')">↔️  Wrap  Lines</button>
+            <button class="export-btn" style="border-color:#7ee787; color:#7ee787;" onclick="copyAllExportText(this)">📑  Copy  All  Text</button>
+        </div>
+    </div>
+    <div class="export-viewport" id="export-viewport">
+${rowsHtml}    </div>
+    <script>
+        const CODE_BLOCKS_MAP = ${serializedBlocks};
+        let currentFont = 14;
+        function copyCodeBlock(blockId, btnElem) {
+            const rawCode = CODE_BLOCKS_MAP[blockId] || '';
+            navigator.clipboard.writeText(rawCode).then(() => {
+                const old = btnElem.innerText;
+                btnElem.innerText = '✅  Copied!';
+                setTimeout(() => { btnElem.innerText = old; }, 1600);
+            });
+        }
+        function changeZoom(delta) {
+            currentFont = Math.min(Math.max(9, currentFont + delta), 36);
+            const vp = document.getElementById('export-viewport');
+            vp.style.fontSize = currentFont + 'px';
+            vp.style.lineHeight = Math.round(currentFont * 1.75) + 'px';
+        }
+        function copyAllExportText(btnElem) {
+            const text = Array.from(document.querySelectorAll('.v-content')).map(el => el.innerText).join('\\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const old = btnElem.innerText;
+                btnElem.innerText = '✅  Copied!';
+                setTimeout(() => { btnElem.innerText = old; }, 1600);
+            });
+        }
+    <\/script>
+</body>
+</html>`;
+        }
+
 
         // ================================================================================
         //      🪄  7.  INITIAL  DEMO  &  30,000-LINE  ZERO-LAG  STRESS  TEST  🪄
