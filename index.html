@@ -569,64 +569,122 @@
                 .replace(/>/g, '&gt;');
         }
 
-        // Format inline bold (**text**) and inline code (`code`) into colored spans
+
+        // Format inline bold (**text**), italic (*text*), and inline code (`code`) WITHOUT raw symbols
         function formatInlineRichText(rawLine) {
             let safe = escHtml(rawLine);
-            // Inline code `...`
-            safe = safe.replace(/`([^`]+)`/g, '<span class="tok-code">`$1`</span>');
-            // Bold **...**
-            safe = safe.replace(/\*\*([^*]+)\*\*/g, '<span class="tok-bold">**$1**</span>');
+
+            // 1. Protect inline code `...` with placeholders first so * inside code isn't touched
+            const codePlaceholders = [];
+            safe = safe.replace(/`([^`]+)`/g, (match, codeText) => {
+                const token = `@@CODE_${codePlaceholders.length}@@`;
+                codePlaceholders.push(`<span class="tok-code">${codeText}</span>`);
+                return token;
+            });
+
+            // 2. Bold + Italic ***text***
+            safe = safe.replace(/\*\*\*([^*]+)\*\*\*/g, '<span class="tok-bold"><span class="tok-italic">$1</span></span>');
+
+            // 3. Bold **text** (strips the ** symbols cleanly)
+            safe = safe.replace(/\*\*([^*]+)\*\*/g, '<span class="tok-bold">$1</span>');
+
+            // 4. Italic *text* (strips single * symbols cleanly)
+            safe = safe.replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, '$1<span class="tok-italic">$2</span>');
+
+            // 5. Clean Markdown links [Label](https://...) -> Label (URL)
+            safe = safe.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<span class="tok-italic">$1</span>');
+
+            // 6. Restore inline code badges
+            codePlaceholders.forEach((htmlBadge, idx) => {
+                safe = safe.replace(`@@CODE_${idx}@@`, htmlBadge);
+            });
+
             return safe;
+        }
+
+        // Convert raw line to clean copiable text (strips ### and ** so copied text is clean)
+        function stripMarkdownForRawCopy(line) {
+            return String(line)
+                .replace(/^#{1,6}\s+/, '')
+                .replace(/\*\*\*([^*]+)\*\*\*/g, '$1')
+                .replace(/\*\*([^*]+)\*\*/g, '$1')
+                .replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g, '$1$2');
         }
 
         // ================================================================================
         //      🪄  2.  STRICT  GEMINI  ROW-GAP  &  VISUAL  FORMATTER  ENGINE  🪄
-        //          - 2 Rows Gap: Question -> Response
-        //          - 4 Rows Gap: Response -> Next Question
+        //          - Question X : ~  ->  2 Row Gaps  ->  Exact Question
+        //          - 3 Row Gaps  ->  Response X : ~  ->  2 Row Gaps  ->  Exact Response
+        //          - 4 Row Gaps between Response and Next Question
         //          - 2 Rows Prefix & Suffix Gap: Above & Below Copiable Blocks
-        //          - Connected Vertical Lines for Steps
         // ================================================================================
         function buildFormattedChatLines(turnsArray) {
             const out = [];
             CODE_BLOCKS_MAP = {};
             let blockCounter = 0;
 
-            // Helper to push exact N blank rows (removing any accidental trailing blanks first)
-            function enforceExactBlankRows(count, label) {
+            // Helper to push exact N TRUE blank rows (removing accidental trailing blanks first)
+            function enforceExactBlankRows(count) {
                 while (out.length > 0 && out[out.length - 1].raw.trim() === '' && out[out.length - 1].type !== 'code-line') {
                     out.pop();
                 }
                 for (let i = 0; i < count; i++) {
                     out.push({
                         raw: '',
-                        html: `<span style="opacity:0.25;">${label} [Row ${i + 1}/${count}]</span>`,
+                        html: '',
                         type: 'gap'
                     });
                 }
             }
 
             turnsArray.forEach((turn, turnIdx) => {
-                // 4 ROWS GAP BETWEEN RESPONSE & NEXT QUESTION
+                const turnNumber = turnIdx + 1;
+
+                // 4 ROWS GAP BETWEEN PREVIOUS RESPONSE & NEXT QUESTION
                 if (turnIdx > 0) {
-                    enforceExactBlankRows(4, '↕ 4-Row Gap (Response → Next Question)');
+                    enforceExactBlankRows(4);
                 }
 
-                // --- USER QUESTION BLOCK ---
-                const qLines = (turn.question || '').replace(/\r/g, '').trim().split('\n');
-                qLines.forEach((qLine, qIdx) => {
-                    const prefix = (qIdx === 0 && !qLine.startsWith('👤')) ? `👤 QUESTION ${turnIdx + 1}: ` : '';
-                    const fullRaw = prefix + qLine;
-                    out.push({
-                        raw: fullRaw,
-                        html: formatInlineRichText(fullRaw),
-                        type: 'question'
-                    });
+                // --- 1. QUESTION HEADER BANNER ---
+                const qHeaderRaw = `Question  ${turnNumber}   : ~`;
+                out.push({
+                    raw: qHeaderRaw,
+                    html: `👤  ${escHtml(qHeaderRaw)}`,
+                    type: 'question-header'
                 });
 
-                // 2 ROWS GAP BETWEEN QUESTION & RESPONSE
-                enforceExactBlankRows(2, '↕ 2-Row Gap (Question → Response)');
+                // --- 2. EXACTLY 2 LINE GAPS AFTER QUESTION HEADER ---
+                enforceExactBlankRows(2);
 
-                // --- GEMINI RESPONSE BLOCK ---
+                // --- 3. EXACT USER QUESTION BODY (PRESERVING INTERNAL LINE BREAKS & SPACING) ---
+                const qLines = (turn.question || '').replace(/\r/g, '').trim().split('\n');
+                qLines.forEach((qLine) => {
+                    if (qLine.trim() === '') {
+                        out.push({ raw: '', html: '', type: 'question' });
+                    } else {
+                        out.push({
+                            raw: qLine,
+                            html: formatInlineRichText(qLine),
+                            type: 'question'
+                        });
+                    }
+                });
+
+                // --- 4. EXACTLY 3 LINE GAPS BEFORE RESPONSE HEADER ---
+                enforceExactBlankRows(3);
+
+                // --- 5. RESPONSE HEADER BANNER ---
+                const rHeaderRaw = `Response   ${turnNumber}   : ~`;
+                out.push({
+                    raw: rHeaderRaw,
+                    html: `🤖  ${escHtml(rHeaderRaw)}`,
+                    type: 'response-header'
+                });
+
+                // --- 6. EXACTLY 2 LINE GAPS AFTER RESPONSE HEADER ---
+                enforceExactBlankRows(2);
+
+                // --- 7. GEMINI RESPONSE BODY (PRESERVING EXACT SPACING & FORMATTING) ---
                 const rLines = (turn.answer || '').replace(/\r/g, '').trim().split('\n');
                 let inCodeBlock = false;
                 let currentBlockId = '';
@@ -638,12 +696,12 @@
                     const line = rLines[i];
                     const trimmed = line.trim();
 
-                    // Detect Fenced Copiable Block Start / End (```)
+                    // A. Detect Fenced Copiable Block Start / End (```)
                     if (trimmed.startsWith('```')) {
                         if (!inCodeBlock) {
                             inStepSequence = false;
                             // ENFORCE 2 ROWS PREFIX GAP ABOVE COPIABLE BLOCK
-                            enforceExactBlankRows(2, '↕ 2-Row Prefix Gap (Above Copiable Block)');
+                            enforceExactBlankRows(2);
 
                             inCodeBlock = true;
                             blockCounter++;
@@ -651,7 +709,6 @@
                             currentBlockLang = trimmed.slice(3).trim() || 'text';
                             currentBlockRawLines = [];
 
-                            // FIXED: Use standard quotes for the backticks to prevent Tagged Template execution
                             const headerRaw = '```' + currentBlockLang;
                             out.push({
                                 raw: headerRaw,
@@ -661,7 +718,6 @@
                                 blockId: currentBlockId
                             });
                         } else {
-                            // End of Copiable Block
                             inCodeBlock = false;
                             CODE_BLOCKS_MAP[currentBlockId] = currentBlockRawLines.join('\n');
 
@@ -672,19 +728,17 @@
                                 blockId: currentBlockId
                             });
 
-                            // Skip any native empty lines immediately following the closing fence
                             while (i + 1 < rLines.length && rLines[i + 1].trim() === '') {
                                 i++;
                             }
-                            // Only add 2-row suffix gap if there are more lines in this response
                             if (i + 1 < rLines.length) {
-                                enforceExactBlankRows(2, '↕ 2-Row Suffix Gap (Below Copiable Block)');
+                                enforceExactBlankRows(2);
                             }
                         }
                         continue;
                     }
 
-                    // Inside Copiable Block
+                    // B. Inside Copiable Block (preserve exact raw code)
                     if (inCodeBlock) {
                         currentBlockRawLines.push(line);
                         out.push({
@@ -696,79 +750,110 @@
                         continue;
                     }
 
-                    // Outside Code Block: Detect Step Rows (e.g., "1. ", "Step 1:", "Step 2 -")
-                    const stepMatch = trimmed.match(/^(?:Step\s+\d+[:.-]?|\d+\.)\s+(.*)/i);
-                    if (stepMatch) {
-                        inStepSequence = true;
+                    // C. Detect Headings (#, ##, ###, ####) -> Cleanly strip the # symbols!
+                    const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
+                    if (headingMatch) {
+                        inStepSequence = false;
+                        const cleanHeadingText = headingMatch[2];
                         out.push({
-                            raw: line,
-                            html: `<div class="step-spine"></div><div class="step-dot"></div>` +
-                                  `<span class="tok-step-num">${formatInlineRichText(line)}</span>`,
-                            type: 'step-start'
-                        });
-                        continue;
-                    }
-
-                    // Continuation of a Vertical-Line Step Sequence
-                    if (inStepSequence && trimmed !== '' && !trimmed.startsWith('#')) {
-                        out.push({
-                            raw: line,
-                            html: `<div class="step-spine"></div>` + formatInlineRichText(line),
-                            type: 'step-body'
-                        });
-                        continue;
-                    } else if (trimmed === '') {
-                        // Keep vertical spine connecting across a single blank line if next line is also a step!
-                        let nextNonEmpty = '';
-                        for (let k = i + 1; k < rLines.length; k++) {
-                            if (rLines[k].trim() !== '') { nextNonEmpty = rLines[k].trim(); break; }
-                        }
-                        const nextIsStep = /^(?:Step\s+\d+[:.-]?|\d+\.)\s+/i.test(nextNonEmpty);
-                        if (inStepSequence && nextIsStep) {
-                            out.push({
-                                raw: '',
-                                html: `<div class="step-spine"></div>`,
-                                type: 'step-body'
-                            });
-                            continue;
-                        } else {
-                            inStepSequence = false;
-                        }
-                    }
-
-                    // Detect Headings (#, ##, ###)
-                    if (/^#{1,6}\s+/.test(trimmed)) {
-                        out.push({
-                            raw: line,
-                            html: formatInlineRichText(line),
+                            raw: stripMarkdownForRawCopy(cleanHeadingText),
+                            html: `<span class="heading-bar">▍</span>` + formatInlineRichText(cleanHeadingText),
                             type: 'heading'
                         });
                         continue;
                     }
 
-                    // Detect Bullet Points (*, -, •)
-                    if (/^([*•-])\s+/.test(trimmed)) {
+                    // D. Detect Bullet Points (*, -, •) Including Indented Sub-Bullets!
+                    const bulletMatch = line.match(/^(\s*)([*•-])\s+(.*)/);
+                    if (bulletMatch) {
+                        const leadingSpaces = bulletMatch[1] || '';
+                        const bulletContent = bulletMatch[3];
+                        const isSubBullet = leadingSpaces.length >= 2;
+                        const bulletSymbol = isSubBullet
+                            ? `<span class="tok-sub-bullet">◦</span>`
+                            : `<span class="tok-bullet">•</span>`;
+                        const indentSpaces = isSubBullet ? '    ' : '  ';
+                        const rawClean = `${indentSpaces}${ isSubBullet ? '◦' : '•' } ${stripMarkdownForRawCopy(bulletContent)}`;
+
+                        if (inStepSequence) {
+                            out.push({
+                                raw: rawClean,
+                                html: `<div class="step-spine"></div>${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`,
+                                type: 'step-body'
+                            });
+                        } else {
+                            out.push({
+                                raw: rawClean,
+                                html: `${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`,
+                                type: 'bullet'
+                            });
+                        }
+                        continue;
+                    }
+
+                    // E. Detect Numbered Step Rows (e.g., "1.   **Massive Speed Difference:**")
+                    const stepMatch = trimmed.match(/^(Step\s+\d+[:.-]?|\d+\.)\s+(.*)/i);
+                    if (stepMatch) {
+                        inStepSequence = true;
+                        const stepNum = stepMatch[1];
+                        const stepRest = stepMatch[2];
                         out.push({
-                            raw: line,
-                            html: `<span class="tok-bullet">❖ </span>` + formatInlineRichText(line.replace(/^(\s*[*•-]\s+)/, '$1')),
-                            type: 'bullet'
+                            raw: `${stepNum} ${stripMarkdownForRawCopy(stepRest)}`,
+                            html: `<div class="step-spine"></div><div class="step-dot"></div>` +
+                                  `<span class="tok-step-num">${escHtml(stepNum)}</span>${formatInlineRichText(stepRest)}`,
+                            type: 'step-start'
                         });
                         continue;
                     }
 
-                    // Detect Blockquotes (>)
-                    if (trimmed.startsWith('>')) {
+                    // F. Handle Blank Lines (Preserve Exact Paragraph Spacing from Chat!)
+                    if (trimmed === '') {
+                        let nextNonEmpty = '';
+                        for (let k = i + 1; k < rLines.length; k++) {
+                            if (rLines[k].trim() !== '') { nextNonEmpty = rLines[k].trim(); break; }
+                        }
+                        const nextContinuesStep = /^(?:Step\s+\d+[:.-]?|\d+\.|[*•-])\s+/i.test(nextNonEmpty);
+                        if (inStepSequence && nextContinuesStep) {
+                            out.push({
+                                raw: '',
+                                html: `<div class="step-spine"></div>`,
+                                type: 'step-body'
+                            });
+                        } else {
+                            inStepSequence = false;
+                            out.push({
+                                raw: '',
+                                html: '',
+                                type: 'normal'
+                            });
+                        }
+                        continue;
+                    }
+
+                    // G. Continuation of a Step Sequence
+                    if (inStepSequence) {
                         out.push({
-                            raw: line,
-                            html: `<span class="tok-quote">${formatInlineRichText(line)}</span>`,
+                            raw: stripMarkdownForRawCopy(line),
+                            html: `<div class="step-spine"></div>` + formatInlineRichText(line),
+                            type: 'step-body'
+                        });
+                        continue;
+                    }
+
+                    // H. Detect Blockquotes (>)
+                    if (trimmed.startsWith('>')) {
+                        const cleanQuote = trimmed.replace(/^>\s*/, '');
+                        out.push({
+                            raw: stripMarkdownForRawCopy(cleanQuote),
+                            html: `<span class="tok-quote">${formatInlineRichText(cleanQuote)}</span>`,
                             type: 'normal'
                         });
                         continue;
                     }
 
-                    // Normal Colored Response Line
+                    // I. Normal Response Prose Line
                     out.push({
-                        raw: line,
+                        raw: stripMarkdownForRawCopy(line),
                         html: formatInlineRichText(line),
                         type: 'normal'
                     });
@@ -783,14 +868,13 @@
             if (!smartFormat) {
                 const rawArr = rawText.replace(/\r/g, '').split('\n').map(l => ({
                     raw: l,
-                    html: formatInlineRichText(l),
+                    html: escHtml(l),
                     type: 'normal'
                 }));
                 setVirtualLines(rawArr);
                 return;
             }
 
-            // Split by common Question/User markers if present
             const lines = rawText.replace(/\r/g, '').split('\n');
             const turns = [];
             let currentQ = [];
@@ -799,8 +883,8 @@
 
             for (let i = 0; i < lines.length; i++) {
                 const l = lines[i];
-                const qMatch = l.match(/^(?:👤\s*QUESTION\s*\d*[:.]?|User\s*:|You\s*:|Prompt\s*:|Question\s*\d*[:.]|Q\d*[:.])\s*(.*)/i);
-                const aMatch = l.match(/^(?:🤖\s*GEMINI\s*:|Gemini\s*:|Assistant\s*:|Response\s*:|Answer\s*:|A\d*[:.])\s*(.*)/i);
+                const qMatch = l.match(/^(?:👤\s*)?(?:QUESTION\s*\d*\s*[:~.-]*|User\s*:|You\s*:|Prompt\s*:|Q\d*[:.])\s*(.*)/i);
+                const aMatch = l.match(/^(?:🤖\s*)?(?:GEMINI\s*:|Assistant\s*:|Response\s*\d*\s*[:~.-]*|Answer\s*:|A\d*[:.])\s*(.*)/i);
 
                 if (qMatch) {
                     if (currentQ.length > 0 || currentA.length > 0) {
@@ -817,7 +901,7 @@
                     state = 'A';
                     if (aMatch[1]) currentA.push(aMatch[1]);
                 } else {
-                    if (state === 'Q' && currentA.length === 0 && l.trim() !== '') {
+                    if (state === 'Q' && currentA.length === 0) {
                         currentQ.push(l);
                     } else {
                         state = 'A';
@@ -854,16 +938,15 @@
             const output = document.getElementById('debug-log-output');
             terminal.style.display = 'flex';
     
-            let color = '#a5d6ff'; // default blue
-            if (type === 'error') color = '#ff7b72'; // red
-            if (type === 'success') color = '#7ee787'; // green
-            if (type === 'warn') color = '#ffa657'; // orange
+            let color = '#a5d6ff';
+            if (type === 'error') color = '#ff7b72';
+            if (type === 'success') color = '#7ee787';
+            if (type === 'warn') color = '#ffa657';
 
             const time = new Date().toLocaleTimeString();
             output.innerHTML += `<div style="color: ${color}; margin-bottom: 6px;">[${time}] ${escHtml(message)}</div>`;
             output.scrollTop = output.scrollHeight;
         }
-
 
         // Updated Extraction Logic (Direct Headless Render Route)
         async function extractFromGeminiLink() {
@@ -875,7 +958,6 @@
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
             try {
-                // ✅ Your actual Vercel domain
                 const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
                 const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
@@ -895,7 +977,6 @@
                     logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
                 }
 
-                // Support both direct markdown response and legacy fallback
                 let mdPayload = data.markdown || '';
                 if (!mdPayload && data.html) {
                     logDebug('Vercel returned raw HTML; calling rendered mode...', 'warn');
@@ -926,7 +1007,6 @@
             }
         }
 
-        
         // Debugger Copy Function
         function copyDebugLogs(btnElem) {
             const logOutput = document.getElementById('debug-log-output');
@@ -950,7 +1030,7 @@
             });
         }
 
-
+        // Smart Multi-Line Question & Answer Splitter for Gemini Share Markdown
         function cleanScrapedGeminiMarkdown(md) {
             let text = md.replace(/\r/g, '');
 
@@ -967,24 +1047,21 @@
                 }
             }
 
-            // 2. Fix standalone language labels above code blocks:
-            // Converts "JavaScript\n\n\n```text" -> "```javascript"
+            // 2. Fix standalone language labels above code blocks ("JavaScript\n\n\n```text" -> "```javascript")
             text = text.replace(/\n([A-Za-z0-9+#_-]{1,18})\n+\s*```(?:text)?\n/g, (match, lang) => {
                 return '\n```' + lang.toLowerCase() + '\n';
             });
 
             // 3. Slice away everything above the first "##### You said" turn
-            // (This removes Sign in, Gemini logo, H1 page title, and "Created with Pro" date header)
             const firstTurnIdx = text.indexOf('##### You said');
             if (firstTurnIdx !== -1) {
                 text = text.substring(firstTurnIdx);
             } else {
-                // Fallback if a share link has no "##### You said" marker
                 const cleanFallback = text.split('\n').filter(l =>
                     !l.startsWith('Title:') &&
                     !l.startsWith('URL Source:') &&
                     !l.startsWith('Markdown Content:') &&
-                    !l.includes('[accounts.google.com/ServiceLogin](https://accounts.google.com/ServiceLogin)') &&
+                    !l.includes('accounts.google.com/ServiceLogin') &&
                     !l.includes('gemini_sparkle')
                 ).join('\n').trim();
                 return cleanFallback ? [{ question: 'Shared Gemini Prompt', answer: cleanFallback }] : [];
@@ -996,40 +1073,69 @@
 
             for (const chunk of rawChunks) {
                 const lines = chunk.split('\n');
+                // First line is Gemini's collapsed 1-line preview (often ends with "…")
                 const headerPreview = (lines.shift() || '').trim();
 
-                // Remove leading blank lines after the header
+                // Strip leading blank lines after the preview header
                 while (lines.length > 0 && lines[0].trim() === '') {
                     lines.shift();
                 }
 
-                let questionText = headerPreview || 'User Prompt';
-
-                // If the header wasn't truncated with "…", the first line in body is an exact duplicate of the prompt
-                if (lines.length > 0 && !headerPreview.endsWith('…') && !headerPreview.endsWith('...')) {
-                    if (lines[0].trim() === headerPreview) {
-                        lines.shift();
-                        while (lines.length > 0 && lines[0].trim() === '') {
-                            lines.shift();
-                        }
-                    }
-                }
-
-                // Clean any trailing "Sign in" line at the end of the last turn
+                // Clean trailing "Sign in" at the bottom of the chunk
                 while (lines.length > 0 && (lines[lines.length - 1].trim() === 'Sign in' || lines[lines.length - 1].trim() === '')) {
                     lines.pop();
                 }
 
-                const answerText = lines.join('\n').trim();
+                // Match the collapsed header prefix against the full multi-line Question block in the body!
+                const previewCore = headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
+                const normCore = previewCore.replace(/\s+/g, ' ');
+
+                let qEndLineIdx = -1;
+                let accumulated = '';
+
+                if (normCore.length > 0) {
+                    for (let i = 0; i < lines.length; i++) {
+                        if (lines[i].trim() !== '') {
+                            accumulated += (accumulated ? ' ' : '') + lines[i].trim();
+                        }
+                        const normAcc = accumulated.replace(/\s+/g, ' ');
+
+                        // Once our accumulated lines cover the truncated header preview:
+                        if (normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
+                            qEndLineIdx = i;
+                            // Keep absorbing any remaining lines of the same paragraph until a blank line
+                            while (qEndLineIdx + 1 < lines.length && lines[qEndLineIdx + 1].trim() !== '') {
+                                qEndLineIdx++;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                let questionText = '';
+                let answerLines = [];
+
+                if (qEndLineIdx !== -1) {
+                    // We found the exact full multi-line question (with its original line gaps!)
+                    questionText = lines.slice(0, qEndLineIdx + 1).join('\n').trim();
+                    answerLines = lines.slice(qEndLineIdx + 1);
+                    while (answerLines.length > 0 && answerLines[0].trim() === '') {
+                        answerLines.shift();
+                    }
+                } else {
+                    questionText = previewCore || 'User Prompt';
+                    answerLines = lines;
+                }
+
                 turns.push({
                     question: questionText,
-                    answer: answerText
+                    answer: answerLines.join('\n').trim()
                 });
             }
 
             return turns;
         }
-  
+        
 
         // ================================================================================
         //      🪄  4.  CORE  60FPS  VIRTUAL  SCROLLER  RENDER  ENGINE  🪄
