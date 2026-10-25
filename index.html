@@ -19,25 +19,34 @@
             color: #c9d1d9;
         }
 
-        /* Prevent UI highlighting */
-        body { 
+
+        /* Strictly lock UI highlighting so "Select All" ONLY selects inside the chat box */
+        body, body * { 
             -webkit-user-select: none; 
             user-select: none; 
         }
         
-        /* Allow continuous multi-line highlighting across the entire chat viewport */
-        #virtual-rows-layer, .v-row, .v-content, .paste-area, .url-input-box { 
+        /* Inputs are selectable ONLY while actively focused/typed into */
+        .paste-area:focus, .url-input-box:focus, .combo-input:focus, .split-text-input:focus { 
+            -webkit-user-select: text; 
+            user-select: text; 
+        }
+
+        /* Allow continuous highlighting ONLY inside the chat viewport rows */
+        #virtual-rows-layer,
+        #virtual-rows-layer .v-row,
+        #virtual-rows-layer .v-content,
+        #virtual-rows-layer .v-content *:not(.inline-copy-btn) { 
             -webkit-user-select: text; 
             user-select: text; 
         }
         
-        /* Keep line numbers unselectable */
-        .v-gutter, .rules-status-bar, .top-action-bar { 
-            -webkit-user-select: none; 
-            user-select: none; 
+        /* Keep line numbers and inline copy buttons strictly unselectable */
+        .v-gutter, .inline-copy-btn, .rules-status-bar, .top-action-bar { 
+            -webkit-user-select: none !important; 
+            user-select: none !important; 
         }
 
-        
         /*   <---   GPU-FRIENDLY  STATIC  AMBIENT  GLOWS  (ZERO  REPAINT  LAG)   --->   */
         .ambient-bg {
             position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -78,27 +87,29 @@
              ============================================================   */
         #splitter-master-wrapper {
             position: relative; width: 100%; min-height: 100vh;
-            z-index: 10; padding: 35px 20px 60px 20px;
+            z-index: 10; padding: 38px 20px 70px 20px;
             display: flex; flex-direction: column; align-items: center;
         }
 
-        /*   Top  Navigation  &  Action  Bar   */
+        /*   Top  Navigation  &  Action  Bar  (Increased Gap Between Row 1 & Row 2)   */
         .top-action-bar {
-            display: flex; justify-content: space-between; align-items: center;
-            width: 100%; max-width: 1220px; gap: 15px; flex-wrap: wrap;
+            display: flex; flex-direction: column; align-items: flex-start;
+            width: 100%; max-width: 1220px; gap: 24px;
         }
 
         .brand-badge {
             background: rgba(22, 27, 34, 0.9); color: #c9a255;
             border: 1px solid rgba(201, 162, 85, 0.45);
-            padding: 11px 22px; border-radius: 8px;
+            padding: 12px 24px; border-radius: 8px;
             font-family: 'Montserrat', sans-serif; font-size: 13px; font-weight: 700;
             letter-spacing: 1.5px; white-space: pre;
             box-shadow: 0 0 20px rgba(201, 162, 85, 0.12);
         }
 
+        /*   2nd Row Buttons Group (Increased Horizontal & Vertical Gaps Between Buttons)   */
         .top-btn-group {
-            display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+            display: flex; gap: 18px 20px; align-items: center; flex-wrap: wrap;
+            width: 100%;
         }
 
         .nav-btn {
@@ -117,18 +128,18 @@
         }
         .load-file-btn:hover { background: rgba(88, 166, 255, 0.28); box-shadow: 0 0 15px rgba(88, 166, 255, 0.35); color: #fff; }
 
-        /*   Main  Glass  Panel   (Optimized  Solid-Tint  Surface  For  60FPS  Scrolling)   */
+        /*   Main  Glass  Panel  (Increased Gap From 2nd Row & Between Inner Sections)   */
         .splitter-panel {
             width: 100%; max-width: 1220px;
             background: #12171f;
             border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 16px;
-            box-shadow: 0 20px 45px rgba(0,0,0,0.55); padding: 28px;
-            display: flex; flex-direction: column; gap: 22px; margin-top: 22px;
+            box-shadow: 0 20px 45px rgba(0,0,0,0.55); padding: 32px;
+            display: flex; flex-direction: column; gap: 28px; margin-top: 36px;
         }
 
         /*   Gemini  Link  Extractor  Bar   */
         .link-extractor-bar {
-            display: flex; gap: 14px; width: 100%; align-items: center;
+            display: flex; gap: 16px; width: 100%; align-items: center;
         }
         .url-input-box {
             flex: 1; background: #090c10; border: 1px solid rgba(88, 166, 255, 0.35);
@@ -153,20 +164,22 @@
             box-shadow: 0 0 18px rgba(126, 231, 135, 0.35);
         }
 
-        /*   Spacing  Rules  Legend  Bar   */
+        /*   Spacing  Rules  Legend  Bar  (Increased Gaps Around & Inside)   */
         .rules-status-bar {
-            display: flex; justify-content: space-between; align-items: center;
+            display: flex; flex-direction: column; align-items: flex-start;
             background: rgba(9, 12, 16, 0.75); border: 1px solid rgba(255,255,255,0.06);
-            padding: 10px 16px; border-radius: 8px; font-size: 12px; color: #8b949e;
-            flex-wrap: wrap; gap: 10px;
+            padding: 18px 22px; border-radius: 10px; font-size: 12px; color: #8b949e;
+            gap: 18px; margin-top: 6px;
+        }
+        .rules-pills-row {
+            display: flex; gap: 14px 18px; flex-wrap: wrap; width: 100%;
         }
         .rule-pill {
             display: inline-flex; align-items: center; gap: 6px;
-            background: rgba(255,255,255,0.04); padding: 4px 10px; border-radius: 6px;
+            background: rgba(255,255,255,0.04); padding: 6px 14px; border-radius: 6px;
             font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #a5d6ff;
             border: 1px solid rgba(165, 214, 255, 0.15);
         }
-
 
         /*   ============================================================
                  🪄  ULTRA-SMOOTH  VIRTUALIZED  VIEWPORT  (120/240 FPS)  🪄
@@ -175,9 +188,9 @@
             width: 100%; height: 56vh; min-height: 460px;
             background: #090d13; border: 1px solid rgba(88, 166, 255, 0.18);
             border-radius: 12px; position: relative; overflow: hidden;
-            /* Locks 2-finger pinch inside the box to text-zoom, while outside zooms the page */
             touch-action: pan-x pan-y;
             contain: layout paint size;
+            margin-top: 6px;
             --v-font-size: 14px;
             --v-row-height: 24.5px;
         }
@@ -206,6 +219,10 @@
             min-width: 100%; width: max-content;
             font-size: var(--v-font-size);
             line-height: var(--v-row-height);
+            will-change: contents, transform;
+        }
+        #virtual-rows-layer.pinching-active {
+            text-rendering: optimizeSpeed;
         }
 
         /*   Individual  Row  (Driven by GPU CSS Variables — Zero DOM Rebuild on Zoom)   */
@@ -242,7 +259,7 @@
             color: #c9d1d9;
             position: relative;
         }
-        
+            
 
         /*   ============================================================
                  🎨  REFINED  EDITORIAL  PALETTE,  HEADERS  &  STEPS
@@ -525,16 +542,16 @@
 
             <!--   Spacing  &  Visual  Status  Bar   -->
             <div class="rules-status-bar">
-                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <div class="rules-pills-row">
                     <span class="rule-pill">↕️  Q → Response : 2 Rows Gap</span>
                     <span class="rule-pill">↕️  Response → Next Q : 4 Rows Gap</span>
                     <span class="rule-pill">📋  Copiable Block : 2 Rows Above & Below</span>
                     <span class="rule-pill">🟣  Vertical Line Steps  +  Colored Text</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Zoom   :   14px   |   ⚡  120 / 240FPS  Engine</span>
-                    <button class="inline-copy-btn" style="margin-left:4px; padding:2px 8px;" onclick="smoothStepZoom(-2)">➖</button>
-                    <button class="inline-copy-btn" style="margin-left:0; padding:2px 8px;" onclick="smoothStepZoom(2)">➕</button>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Zoom   :   14px  |  ⚡ 240FPS Lerp Engine</span>
+                    <button class="inline-copy-btn" style="margin-left:4px; padding:3px 10px;" onclick="smoothStepZoom(-2)">➖</button>
+                    <button class="inline-copy-btn" style="margin-left:0; padding:3px 10px;" onclick="smoothStepZoom(2)">➕</button>
                 </div>
             </div>
 
@@ -546,15 +563,21 @@
                 </div>
             </div>
 
-            <!--   3.  TOTAL  LINES  +  1-CLICK  SINGLE  FILE  SAVE  BAR   -->
+            <!--   3.  TOTAL  CHARACTERS  +  TOTAL  LINES  +  1-CLICK  SINGLE  FILE  SAVE  BAR   -->
             <div class="total-lines-wrapper">
-                <!-- Total Lines Indicator -->
+                <!-- Total Characters Indicator (Left Side) -->
+                <div class="input-btn-combo readonly-combo">
+                    <input type="text" id="total-chars-count" class="combo-input" style="width: 135px;" value="0" readonly>
+                    <div class="combo-btn readonly-btn">🔤   Total  Characters</div>
+                </div>
+
+                <!-- Total Lines Indicator (Middle) -->
                 <div class="input-btn-combo readonly-combo">
                     <input type="text" id="total-lines-count" class="combo-input" value="1" readonly>
                     <div class="combo-btn readonly-btn">🗞️   Total  Lines</div>
                 </div>
 
-                <!-- 1-Click Save Entire Chat In Any Extension -->
+                <!-- 1-Click Save Entire Chat In Any Extension (Right Side) -->
                 <div class="input-btn-combo" style="border-color: rgba(126, 231, 135, 0.45);">
                     <input type="text" id="single-file-name" class="combo-input" style="width: 220px;" value="gemini_chat.html" placeholder="filename.ext">
                     <button class="combo-btn" style="color:#7ee787; background:rgba(46,160,67,0.18); border-left-color:rgba(126,231,135,0.45);" onclick="downloadSingleFullFile()">💾   Save  In  1  File  (Any Ext)</button>
@@ -562,6 +585,7 @@
                 
             </div>
 
+            
             <!--   4.  LINE  JUMP  &  MULTI-FILE  SPLITTER  CONTROLS   -->
             <div class="control-row">
 
@@ -994,7 +1018,8 @@
             output.scrollTop = output.scrollHeight;
         }
 
-        // Updated Extraction Logic (Direct Headless Render Route)
+
+        // Updated Extraction Logic (Supports Massive 80,000+ Line / 8-Lakh Character Chats)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1003,36 +1028,46 @@
             logDebug(`Starting extraction for: ${urlInput}`, 'info');
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
-            try {
-                const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
-                const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
+            let mdPayload = '';
+            const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
+            const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
+            try {
                 logDebug(`Calling Vercel Endpoint : ${proxyUrl}`, 'warn');
-        
                 const rawRes = await fetch(proxyUrl);
                 logDebug(`Vercel HTTP Status : ${rawRes.status}`, rawRes.ok ? 'success' : 'error');
-        
-                const data = await rawRes.json();
-        
-                if (!rawRes.ok) {
-                    logDebug(`Backend Error : ${JSON.stringify(data)}`, 'error');
-                    throw new Error('Vercel Returned an Error');
-                }
 
-                if (data.finalUrl) {
-                    logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
-                }
+                if (rawRes.ok) {
+                    const data = await rawRes.json();
+                    if (data.finalUrl) logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
+                    mdPayload = data.markdown || '';
 
-                let mdPayload = data.markdown || '';
-                if (!mdPayload && data.html) {
-                    logDebug('Vercel returned raw HTML; calling rendered mode...', 'warn');
-                    const renderRes = await fetch(`${proxyUrl}&mode=rendered`);
-                    const renderData = await renderRes.json();
-                    mdPayload = renderData.markdown || '';
+                    if (!mdPayload && data.html) {
+                        logDebug('Vercel returned raw HTML; calling rendered mode...', 'warn');
+                        const renderRes = await fetch(`${proxyUrl}&mode=rendered`);
+                        const renderData = await renderRes.json();
+                        mdPayload = renderData.markdown || '';
+                    }
+                }
+            } catch (vercelErr) {
+                logDebug(`Vercel proxy notice (${vercelErr.message}). Trying direct stream fallback...`, 'warn');
+            }
+
+            try {
+                // Direct Stream Fallback for Massive 80,000+ Line / 8-Lakh Character Chats
+                if (!mdPayload || mdPayload.trim().length <= 40) {
+                    logDebug('Fetching directly from Headless Stream for large payload...', 'warn');
+                    showStatus('Streaming Massive Chat Payload 🪄 .....');
+                    const directRes = await fetch(`https://r.jina.ai/${urlInput}`, {
+                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' }
+                    });
+                    if (directRes.ok) {
+                        mdPayload = await directRes.text();
+                    }
                 }
 
                 if (mdPayload && mdPayload.trim().length > 40) {
-                    logDebug(`Rendered Payload Received: ${mdPayload.length} Characters.`, 'info');
+                    logDebug(`Rendered Payload Received: ${mdPayload.length.toLocaleString()} Characters.`, 'info');
                     
                     const turns = cleanScrapedGeminiMarkdown(mdPayload);
                     logDebug(`Extracted ${turns.length} Conversation Turn(s).`, turns.length > 0 ? 'success' : 'warn');
@@ -1080,7 +1115,6 @@
         function cleanScrapedGeminiMarkdown(md) {
             let text = md.replace(/\r/g, '');
 
-            // 1. Cut off the Google/Gemini footer at the bottom of the page
             const footerMarkers = [
                 '\nGemini may display inaccurate info',
                 '\n[About Gemini](',
@@ -1093,12 +1127,10 @@
                 }
             }
 
-            // 2. Fix standalone language labels above code blocks ("JavaScript\n\n\n```text" -> "```javascript")
             text = text.replace(/\n([A-Za-z0-9+#_-]{1,18})\n+\s*```(?:text)?\n/g, (match, lang) => {
                 return '\n```' + lang.toLowerCase() + '\n';
             });
 
-            // 3. Slice away everything above the first "##### You said" turn
             const firstTurnIdx = text.indexOf('##### You said');
             if (firstTurnIdx !== -1) {
                 text = text.substring(firstTurnIdx);
@@ -1113,26 +1145,21 @@
                 return cleanFallback ? [{ question: 'Shared Gemini Prompt', answer: cleanFallback }] : [];
             }
 
-            // 4. Split into individual Question & Answer turns on every "##### You said"
             const rawChunks = text.split(/^##### You said\s*/m).filter(c => c.trim().length > 0);
             const turns = [];
 
             for (const chunk of rawChunks) {
                 const lines = chunk.split('\n');
-                // First line is Gemini's collapsed 1-line preview (often ends with "…")
                 const headerPreview = (lines.shift() || '').trim();
 
-                // Strip leading blank lines after the preview header
                 while (lines.length > 0 && lines[0].trim() === '') {
                     lines.shift();
                 }
 
-                // Clean trailing "Sign in" at the bottom of the chunk
                 while (lines.length > 0 && (lines[lines.length - 1].trim() === 'Sign in' || lines[lines.length - 1].trim() === '')) {
                     lines.pop();
                 }
 
-                // Match the collapsed header prefix against the full multi-line Question block in the body!
                 const previewCore = headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
                 const normCore = previewCore.replace(/\s+/g, ' ');
 
@@ -1146,10 +1173,8 @@
                         }
                         const normAcc = accumulated.replace(/\s+/g, ' ');
 
-                        // Once our accumulated lines cover the truncated header preview:
                         if (normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
                             qEndLineIdx = i;
-                            // Keep absorbing any remaining lines of the same paragraph until a blank line
                             while (qEndLineIdx + 1 < lines.length && lines[qEndLineIdx + 1].trim() !== '') {
                                 qEndLineIdx++;
                             }
@@ -1162,7 +1187,6 @@
                 let answerLines = [];
 
                 if (qEndLineIdx !== -1) {
-                    // We found the exact full multi-line question (with its original line gaps!)
                     questionText = lines.slice(0, qEndLineIdx + 1).join('\n').trim();
                     answerLines = lines.slice(qEndLineIdx + 1);
                     while (answerLines.length > 0 && answerLines[0].trim() === '') {
@@ -1181,21 +1205,27 @@
 
             return turns;
         }
-        
 
         // ================================================================================
-        //      🪄  4.  NON-DESTRUCTIVE  RENDER  ENGINE  (PERSISTENT  TEXT  SELECTION)  🪄
+        //      🪄  4.  NON-DESTRUCTIVE  RENDER  ENGINE  +  SELECT-ALL  BOX  LOCK  🪄
         // ================================================================================
         let isMassiveVirtualMode = false;
         let lastRenderedStart = -1;
         let lastRenderedEnd = -1;
+        let isChatBoxFocused = false;
+        let allSelectedInBox = false;
 
         function setVirtualLines(linesArray) {
             VIRTUAL_LINES = linesArray.length > 0 ? linesArray : [{ raw: '', html: '', type: 'normal' }];
-            document.getElementById('total-lines-count').value = VIRTUAL_LINES.length;
 
-            // For normal & long chats (up to 5,000 lines), mount all rows once in direct flow.
-            // This guarantees 0 DOM mutations during scroll so blue text selection NEVER disappears!
+            // Update both Total Lines and Total Characters badges
+            document.getElementById('total-lines-count').value = VIRTUAL_LINES.length;
+            const totalChars = VIRTUAL_LINES.reduce((sum, item) => sum + (item.raw ? item.raw.length : 0), 0) +
+                               Math.max(0, VIRTUAL_LINES.length - 1);
+            const charsInput = document.getElementById('total-chars-count');
+            if (charsInput) charsInput.value = totalChars;
+
+            // Direct flow up to 5,000 lines; Virtual Window Mode for 5,001 to 100,000+ lines
             isMassiveVirtualMode = VIRTUAL_LINES.length > 5000;
             lastRenderedStart = -1;
             lastRenderedEnd = -1;
@@ -1223,21 +1253,78 @@
             }
         }
 
+        // Track when user taps inside vs. outside the Formatted Chat Box
+        document.addEventListener('pointerdown', (e) => {
+            isChatBoxFocused = editorContainer.contains(e.target);
+            if (!isChatBoxFocused) allSelectedInBox = false;
+        }, { passive: true });
+
+        function selectOnlyChatBoxContents() {
+            const sel = window.getSelection();
+            if (!sel) return;
+            const range = document.createRange();
+            range.selectNodeContents(rowsLayer);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            allSelectedInBox = true;
+        }
+
+        // Lock Desktop Ctrl+A / Cmd+A to ONLY select inside the Chat Box
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+                const active = document.activeElement;
+                const isInputFocused = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA');
+                if (!isInputFocused && isChatBoxFocused) {
+                    e.preventDefault();
+                    selectOnlyChatBoxContents();
+                }
+            }
+        });
+
+        // Lock Mobile "Select All" Popup so it never leaks outside #virtual-rows-layer
+        let clampingSelection = false;
+        document.addEventListener('selectionchange', () => {
+            if (clampingSelection || !isChatBoxFocused) return;
+            const sel = window.getSelection();
+            if (!sel || sel.isCollapsed || !sel.anchorNode || !sel.focusNode) {
+                allSelectedInBox = false;
+                return;
+            }
+            const anchorInside = rowsLayer.contains(sel.anchorNode);
+            const focusInside = rowsLayer.contains(sel.focusNode);
+
+            // If mobile "Select All" expanded selection to the whole page body, clamp it back to rowsLayer!
+            if (!anchorInside || !focusInside) {
+                clampingSelection = true;
+                selectOnlyChatBoxContents();
+                setTimeout(() => { clampingSelection = false; }, 30);
+            }
+        });
+
+        // Ensure copying after "Select All" in 80,000-line Virtual Mode copies all 80,000 lines
+        editorContainer.addEventListener('copy', (e) => {
+            if (isMassiveVirtualMode && allSelectedInBox) {
+                e.preventDefault();
+                const fullText = VIRTUAL_LINES.map(l => l.raw).join('\n');
+                e.clipboardData.setData('text/plain', fullText);
+            }
+        });
+
         function updateScrollMetrics() {
             rowHeight = fontSize * 1.75;
-            editorContainer.style.setProperty('--v-font-size', `${fontSize.toFixed(2)}px`);
-            editorContainer.style.setProperty('--v-row-height', `${rowHeight.toFixed(2)}px`);
+            editorContainer.style.setProperty('--v-font-size', `${fontSize.toFixed(3)}px`);
+            editorContainer.style.setProperty('--v-row-height', `${rowHeight.toFixed(3)}px`);
 
             if (isMassiveVirtualMode) {
                 phantom.style.height = `${Math.round(VIRTUAL_LINES.length * rowHeight)}px`;
             }
             document.getElementById('zoom-indicator').innerText =
-                `🔍  Zoom   :   ${Math.round(fontSize)}px  |  ⚡ 120/240FPS Engine`;
+                `🔍  Zoom   :   ${Math.round(fontSize)}px  |  ⚡ 240FPS Lerp Engine`;
         }
 
         let scrollTicking = false;
         scroller.addEventListener('scroll', () => {
-            if (!isMassiveVirtualMode) return; // Direct flow needs zero JS on scroll!
+            if (!isMassiveVirtualMode) return;
             if (!scrollTicking) {
                 scrollTicking = true;
                 requestAnimationFrame(() => {
@@ -1250,7 +1337,6 @@
         function renderVisibleVirtualRows(forceRebuild = false) {
             if (!isMassiveVirtualMode) return;
 
-            // Do not overwrite DOM if user currently has an active text highlight selection
             const sel = window.getSelection();
             if (!forceRebuild && sel && !sel.isCollapsed && rowsLayer.contains(sel.anchorNode)) {
                 return;
@@ -1287,14 +1373,15 @@
         }
 
         // ================================================================================
-        //      🪄  5.  120/240 FPS  SUB-PIXEL  PINCH  &  BUTTON  ZOOM  ENGINE  🪄
+        //      🪄  5.  EXTREME  240Hz  INERTIAL-LERP  PINCH  &  BUTTON  ZOOM  ENGINE  🪄
         // ================================================================================
-        let zoomAnimFrame = null;
+        let targetZoomFont = fontSize;
+        let zoomFocusY = null;
+        let lerpLoopId = null;
 
-        // Instant Sub-Pixel Zoom (Zero DOM Rebuilds -> Never breaks touch target!)
-        function applyZoom(newSize, anchorOffsetY = null) {
+        function applyZoomInstant(newSize, anchorOffsetY = null) {
             const clamped = Math.min(Math.max(9, newSize), 42);
-            if (Math.abs(clamped - fontSize) < 0.01) return;
+            if (Math.abs(clamped - fontSize) < 0.002) return;
 
             const focusY = anchorOffsetY !== null ? anchorOffsetY : (scroller.clientHeight / 2);
             const lineAtFocus = (scroller.scrollTop + focusY) / rowHeight;
@@ -1309,47 +1396,50 @@
             }
         }
 
-        // Smooth 120/240 FPS Animated Glide for ➖ and ➕ Buttons
-        function smoothStepZoom(delta) {
-            if (zoomAnimFrame) cancelAnimationFrame(zoomAnimFrame);
-            const startFont = fontSize;
-            const targetFont = Math.min(Math.max(9, Math.round(fontSize + delta)), 42);
-            const startTime = performance.now();
-            const duration = 160; // 160ms ultra-smooth cubic ease-out
+        // High-Frequency 120/240Hz Physics Interpolation Loop (Eliminates Finger Jitter)
+        function startZoomLerpLoop() {
+            if (lerpLoopId) return;
+            rowsLayer.classList.add('pinching-active');
 
-            function step(now) {
-                const elapsed = now - startTime;
-                const progress = Math.min(1, elapsed / duration);
-                const ease = 1 - Math.pow(1 - progress, 3);
-                applyZoom(startFont + (targetFont - startFont) * ease);
-                if (progress < 1) {
-                    zoomAnimFrame = requestAnimationFrame(step);
+            function tick() {
+                const diff = targetZoomFont - fontSize;
+                if (Math.abs(diff) > 0.015) {
+                    applyZoomInstant(fontSize + diff * 0.36, zoomFocusY);
+                    lerpLoopId = requestAnimationFrame(tick);
                 } else {
-                    zoomAnimFrame = null;
+                    applyZoomInstant(targetZoomFont, zoomFocusY);
+                    lerpLoopId = null;
+                    rowsLayer.classList.remove('pinching-active');
                     if (isMassiveVirtualMode) renderVisibleVirtualRows(true);
                 }
             }
-            zoomAnimFrame = requestAnimationFrame(step);
+            lerpLoopId = requestAnimationFrame(tick);
         }
 
-        // Desktop Ctrl + Wheel / Trackpad Pinch inside the box
+        // Smooth Gliding Zoom for ➖ and ➕ Buttons
+        function smoothStepZoom(delta) {
+            zoomFocusY = scroller.clientHeight / 2;
+            targetZoomFont = Math.min(Math.max(9, Math.round(targetZoomFont + delta)), 42);
+            startZoomLerpLoop();
+        }
+
+        // Desktop Ctrl + Wheel / Trackpad Pinch
         editorContainer.addEventListener('wheel', (e) => {
             if (e.ctrlKey) {
                 e.preventDefault();
                 const rect = scroller.getBoundingClientRect();
-                const offsetY = e.clientY - rect.top;
-                const delta = -e.deltaY * 0.04;
-                applyZoom(fontSize + (Math.abs(delta) > 0.15 ? delta : (e.deltaY < 0 ? 1 : -1)), offsetY);
+                zoomFocusY = e.clientY - rect.top;
+                const delta = -e.deltaY * 0.045;
+                const step = Math.abs(delta) > 0.15 ? delta : (e.deltaY < 0 ? 1.2 : -1.2);
+                targetZoomFont = Math.min(Math.max(9, targetZoomFont + step), 42);
+                startZoomLerpLoop();
             }
         }, { passive: false });
 
-        // Mobile 2-Finger Pinch-to-Zoom INSIDE the Box (120/240 FPS Sub-Pixel Scaling)
+        // Mobile 2-Finger Pinch-to-Zoom Inside the Box (240Hz Inertial Smoothing)
         let isPinchingBox = false;
         let pinchStartDist = 0;
         let pinchStartFont = 14;
-        let pinchMidY = 0;
-        let pendingPinchScale = null;
-        let pinchRafPending = false;
 
         function getTouchDistance(t1, t2) {
             return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
@@ -1358,12 +1448,12 @@
         editorContainer.addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
                 if (e.cancelable) e.preventDefault();
-                if (zoomAnimFrame) { cancelAnimationFrame(zoomAnimFrame); zoomAnimFrame = null; }
                 isPinchingBox = true;
                 pinchStartDist = getTouchDistance(e.touches[0], e.touches[1]);
                 pinchStartFont = fontSize;
+                targetZoomFont = fontSize;
                 const rect = scroller.getBoundingClientRect();
-                pinchMidY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+                zoomFocusY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
             }
         }, { passive: false });
 
@@ -1375,20 +1465,13 @@
                     isPinchingBox = true;
                     pinchStartDist = dist;
                     pinchStartFont = fontSize;
-                    const rect = scroller.getBoundingClientRect();
-                    pinchMidY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
                     return;
                 }
-                pendingPinchScale = dist / pinchStartDist;
-                if (!pinchRafPending) {
-                    pinchRafPending = true;
-                    requestAnimationFrame(() => {
-                        pinchRafPending = false;
-                        if (pendingPinchScale !== null) {
-                            applyZoom(pinchStartFont * pendingPinchScale, pinchMidY);
-                        }
-                    });
-                }
+                const rect = scroller.getBoundingClientRect();
+                zoomFocusY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+                const scale = dist / pinchStartDist;
+                targetZoomFont = Math.min(Math.max(9, pinchStartFont * scale), 42);
+                startZoomLerpLoop();
             }
         }, { passive: false });
 
@@ -1396,13 +1479,11 @@
             if (isPinchingBox && e.touches.length < 2) {
                 isPinchingBox = false;
                 pinchStartDist = 0;
-                pendingPinchScale = null;
-                if (isMassiveVirtualMode) renderVisibleVirtualRows(true);
             }
         }
         editorContainer.addEventListener('touchend', endPinchGesture, { passive: true });
         editorContainer.addEventListener('touchcancel', endPinchGesture, { passive: true });
-
+        
 
         // ================================================================================
         //      🪄  6.  COPY  FUNCTIONS,  LINE-RANGE  COPY,  JUMP  &  MULTI-SPLIT  🪄
