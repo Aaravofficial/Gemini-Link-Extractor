@@ -232,68 +232,91 @@
         }
 
         /*   ============================================================
-                 🎨  COLORED  RESPONSE,  VERTICAL  STEPS  &  CODE  BLOCKS
+                 🎨  REFINED  EDITORIAL  PALETTE,  HEADERS  &  STEPS
              ============================================================   */
-        /* 1. Question Rows */
+        /* 1. Question Banner & Question Body Rows */
+        .v-row.type-question-header {
+            background: linear-gradient(90deg, rgba(227, 179, 65, 0.18) 0%, rgba(227, 179, 65, 0.02) 85%);
+            border-left: 3px solid #e3b341;
+        }
+        .v-row.type-question-header .v-gutter {
+            color: #e3b341; border-right-color: rgba(227, 179, 65, 0.45); font-weight: 700;
+        }
+        .v-row.type-question-header .v-content {
+            color: #ffd866; font-weight: 700; letter-spacing: 0.8px;
+        }
+
         .v-row.type-question {
-            background: rgba(201, 162, 85, 0.09);
+            background: rgba(201, 162, 85, 0.05);
         }
         .v-row.type-question .v-gutter {
-            color: #e3b341; border-right-color: rgba(227, 179, 65, 0.35);
+            color: #d29922; border-right-color: rgba(227, 179, 65, 0.25);
         }
         .v-row.type-question .v-content {
-            color: #ffd866; font-weight: 600;
+            color: #fff8e7; font-weight: 500;
         }
 
-        /* 2. Heading Rows */
+        /* 2. Response Banner Row */
+        .v-row.type-response-header {
+            background: linear-gradient(90deg, rgba(46, 160, 67, 0.18) 0%, rgba(88, 166, 255, 0.02) 85%);
+            border-left: 3px solid #3fb950;
+        }
+        .v-row.type-response-header .v-gutter {
+            color: #7ee787; border-right-color: rgba(63, 185, 80, 0.45); font-weight: 700;
+        }
+        .v-row.type-response-header .v-content {
+            color: #7ee787; font-weight: 700; letter-spacing: 0.8px;
+        }
+
+        /* 3. Section Headings (H1 - H6) */
+        .v-row.type-heading {
+            background: rgba(88, 166, 255, 0.05);
+        }
         .v-row.type-heading .v-content {
-            color: #79c0ff; font-weight: 700;
+            color: #79c0ff; font-weight: 700; letter-spacing: 0.3px;
+        }
+        .heading-bar {
+            color: #58a6ff; margin-right: 10px; font-weight: 700;
         }
 
-        /* 3. Normal Colored Response Rows */
-        .v-row.type-normal .v-content {
-            color: #a5d6ff;
-        }
-
-        /* 4. Bullet Point Rows */
+        /* 4. Normal Response & Bullet Rows (Clean, Unified Readability) */
+        .v-row.type-normal .v-content,
         .v-row.type-bullet .v-content {
-            color: #7ee787;
+            color: #e6edf3;
         }
 
         /* 5. Connected Vertical-Line Step Rows */
         .v-row.type-step-start .v-content,
         .v-row.type-step-body .v-content {
             padding-left: 42px;
-            color: #d2a8ff;
+            color: #e6edf3;
         }
-        /* The Vertical Line Spine */
         .step-spine {
             position: absolute; left: 18px; top: 0; bottom: 0;
             width: 2px; background: linear-gradient(180deg, #bc8cff, #58a6ff);
-            box-shadow: 0 0 8px rgba(188, 140, 255, 0.6);
+            box-shadow: 0 0 8px rgba(188, 140, 255, 0.45);
         }
-        /* The Glowing Step Node Circle */
         .step-dot {
             position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
             width: 12px; height: 12px; border-radius: 50%;
             background: #0d1117; border: 2.5px solid #bc8cff;
-            box-shadow: 0 0 10px #bc8cff; z-index: 2;
+            box-shadow: 0 0 8px #bc8cff; z-index: 2;
         }
 
-        /* 6. Copiable Block Rows */
+        /* 6. Copiable Code Block Rows */
         .v-row.type-code-header {
             background: rgba(88, 166, 255, 0.14);
             border-top: 1px solid rgba(88, 166, 255, 0.35);
         }
         .v-row.type-code-line {
-            background: rgba(1, 4, 9, 0.85);
+            background: rgba(1, 4, 9, 0.88);
         }
         .v-row.type-code-line .v-gutter {
             background: #04060a; color: #58a6ff;
             border-right: 2px solid #58a6ff;
         }
         .v-row.type-code-line .v-content {
-            color: #7ee787;
+            color: #a5d6ff;
         }
         .v-row.type-code-footer {
             background: rgba(88, 166, 255, 0.08);
@@ -311,22 +334,24 @@
             background: #58a6ff; color: #090d13; box-shadow: 0 0 10px rgba(88, 166, 255, 0.5);
         }
 
-        /* 7. Explicit Row Gaps (2-Row & 4-Row Indicators on Hover) */
+        /* 7. Clean Blank Gap Rows */
         .v-row.type-gap .v-content {
-            color: rgba(110, 118, 129, 0.28); font-style: italic; font-size: 0.8em;
-            user-select: none;
+            user-select: text;
         }
 
-        /* Inline Rich Text Spans */
-        .tok-bold { color: #ffa657; font-weight: 700; }
+        /* 8. Harmonious Inline Rich Text Tokens (No Raw Asterisks!) */
+        .tok-bold { color: #ffd866; font-weight: 700; }
+        .tok-italic { color: #a5d6ff; font-style: italic; }
         .tok-code {
             background: rgba(255, 123, 114, 0.14); color: #ff7b72;
-            padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.25);
+            padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.28);
+            font-size: 0.94em;
         }
-        .tok-bullet { color: #58a6ff; font-weight: 700; }
-        .tok-step-num { color: #f2cc60; font-weight: 700; }
-        .tok-quote { color: #e3b341; font-style: italic; border-left: 3px solid #e3b341; padding-left: 10px; }
-
+        .tok-bullet { color: #58a6ff; font-weight: 700; margin-right: 8px; }
+        .tok-sub-bullet { color: #bc8cff; font-weight: 700; margin-right: 8px; }
+        .tok-step-num { color: #d2a8ff; font-weight: 700; margin-right: 6px; }
+        .tok-quote { color: #a5d6ff; font-style: italic; border-left: 3px solid #58a6ff; padding-left: 12px; }
+        
         /*   Raw / Paste  Modal  Box   */
         .paste-drawer {
             display: none; flex-direction: column; gap: 12px;
