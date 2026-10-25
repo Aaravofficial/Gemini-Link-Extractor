@@ -1065,7 +1065,7 @@
         }
 
 
-        // Updated Extraction Logic (DOM-Container Extractor for Short & Massive 100K+ Line Chats)
+        // Updated Extraction Logic (DOM-Container + Markdown Fallback for Short & Massive Chats)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1087,18 +1087,21 @@
                     const data = await rawRes.json();
                     if (data.finalUrl) logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
                     rawPayload = data.renderedHtml || data.markdown || data.html || '';
+                } else {
+                    const errText = await rawRes.text();
+                    logDebug(`Vercel Error Details : ${errText.slice(0, 220)}`, 'error');
                 }
             } catch (vercelErr) {
                 logDebug(`Vercel proxy notice (${vercelErr.message}). Trying direct stream fallback...`, 'warn');
             }
 
             try {
-                // Direct Stream Fallback if Vercel timed out on a massive 1,00,000+ line chat
+                // Direct Stream Fallback (Uses 'markdown' format which natively resolves share.gemini.google shortlinks)
                 if (!rawPayload || rawPayload.trim().length <= 40) {
-                    logDebug('Fetching Rendered HTML directly from Headless Stream...', 'warn');
-                    showStatus('Streaming Massive Chat DOM 🪄 .....');
-                    const directRes = await fetch(`[https://r.jina.ai/$](https://r.jina.ai/$){urlInput}`, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html' }
+                    logDebug('Fetching directly from Headless Stream (Markdown route)...', 'warn');
+                    showStatus('Streaming Chat Payload 🪄 .....');
+                    const directRes = await fetch(`https://r.jina.ai/${urlInput}`, {
+                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' }
                     });
                     if (directRes.ok) {
                         rawPayload = await directRes.text();
@@ -1126,8 +1129,9 @@
                 alert('⚠️ Extraction failed. Check the System Debugger.');
             }
         }
+        
 
-        // Debugger Copy Function
+        //   Debugger Copy Function
         function copyDebugLogs(btnElem) {
             const logOutput = document.getElementById('debug-log-output');
             if (!logOutput) return;
