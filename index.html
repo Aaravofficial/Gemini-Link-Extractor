@@ -181,7 +181,7 @@
             width: 100%;
             background: rgba(9, 12, 16, 0.75); border: 1px solid rgba(255,255,255,0.06);
             padding: 16px 18px; border-radius: 10px; font-size: 12px; color: #8b949e;
-            gap: 18px; margin-top: 12px; margin-bottom: 46px;
+            gap: 18px; margin-top: 12px; margin-bottom: 66px;
         }
         .rules-pills-row {
             display: flex; justify-content: space-between; align-items: center;
@@ -195,7 +195,7 @@
         }
         .zoom-status-row {
             display: flex; justify-content: center; align-items: center;
-            gap: 32px; margin-bottom: 13px; width: 100%;
+            gap: 32px; margin-bottom: 13px; width: 100%; white-space: pre;
         }
         .zoom-btn-pair {
             display: inline-flex; align-items: center; gap: 26px;
@@ -414,7 +414,7 @@
              ============================================================   */
         .total-lines-wrapper {
             display: flex; justify-content: space-between; align-items: stretch;
-            gap: 16px; width: 100%; margin: 46px 0 4px 0; flex-wrap: nowrap;
+            gap: 16px; width: 100%; margin: 66px 0 4px 0; flex-wrap: nowrap;
         }
         .total-lines-wrapper > .input-btn-combo {
             flex: 1;
@@ -1588,7 +1588,7 @@
         // Smooth Gliding Zoom for ➖ and ➕ Buttons
         function smoothStepZoom(delta) {
             zoomFocusY = scroller.clientHeight / 2;
-            targetZoomFont = Math.min(Math.max(9, Math.round(targetZoomFont + delta)), 42);
+            targetZoomFont = Math.min(Math.max(9, Math.round(targetZoomFont + delta)), 152);
             startZoomLerpLoop();
         }
 
@@ -1600,7 +1600,7 @@
                 zoomFocusY = e.clientY - rect.top;
                 const delta = -e.deltaY * 0.045;
                 const step = Math.abs(delta) > 0.15 ? delta : (e.deltaY < 0 ? 1.2 : -1.2);
-                targetZoomFont = Math.min(Math.max(9, targetZoomFont + step), 42);
+                targetZoomFont = Math.min(Math.max(9, targetZoomFont + step), 152);
                 startZoomLerpLoop();
             }
         }, { passive: false });
@@ -1639,7 +1639,7 @@
                 const rect = scroller.getBoundingClientRect();
                 zoomFocusY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
                 const scale = dist / pinchStartDist;
-                targetZoomFont = Math.min(Math.max(9, pinchStartFont * scale), 42);
+                targetZoomFont = Math.min(Math.max(9, pinchStartFont * scale), 152);
                 startZoomLerpLoop();
             }
         }, { passive: false });
