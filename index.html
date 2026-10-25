@@ -174,8 +174,8 @@
             width: 100%; height: 56vh; min-height: 460px;
             background: #090d13; border: 1px solid rgba(88, 166, 255, 0.18);
             border-radius: 12px; position: relative; overflow: hidden;
-            touch-action: pan-y pan-x;
-            contain: strict;
+            touch-action: manipulation;
+            contain: layout paint size;
         }
 
         #virtual-scroller {
@@ -479,9 +479,14 @@
                 <button class="nav-btn" onclick="togglePasteDrawer()">📋   Paste  Chat / Text</button>
                 <button class="nav-btn" style="border-color:#c9a255; color:#c9a255;" onclick="loadStressTest30k()">⚡   Test  30,000  Lines</button>
                 <button class="nav-btn" style="border-color:#7ee787; color:#7ee787;" onclick="copyEntireDocument()">📑   Copy  All  Text</button>
+                <div class="input-btn-combo" style="border-color: rgba(88, 166, 255, 0.5);">
+                    <input type="text" id="top-copy-range-input" class="combo-input" placeholder="Lines (e.g. 1-20)" style="width: 145px; padding: 10px 12px; font-size: 12px;">
+                    <button class="combo-btn" onclick="copySpecificLineRange(this)" style="padding: 10px 16px; font-size: 12px;">📋   Copy  Lines</button>
+                </div>
                 <input type="file" id="hidden-file-input" style="display: none;" accept="*/*" onchange="loadUserTextFile(event)">
                 <button class="load-file-btn" onclick="document.getElementById('hidden-file-input').click()">📂   Load  Any  File</button>
             </div>
+            
         </div>
 
         <div class="splitter-panel">
@@ -513,8 +518,10 @@
                     <span class="rule-pill">📋  Copiable Block : 2 Rows Above & Below</span>
                     <span class="rule-pill">🟣  Vertical Line Steps  +  Colored Text</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Zoom: 14px  (Ctrl + Scroll or Pinch)</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Font: 14px  |  ⚡ 60FPS Virtual Engine</span>
+                    <button class="inline-copy-btn" style="margin-left:4px; padding:2px 8px;" onclick="applyZoom(fontSize - 1)">➖</button>
+                    <button class="inline-copy-btn" style="margin-left:0; padding:2px 8px;" onclick="applyZoom(fontSize + 1)">➕</button>
                 </div>
             </div>
 
@@ -536,9 +543,10 @@
 
                 <!-- 1-Click Save Entire Chat In Any Extension -->
                 <div class="input-btn-combo" style="border-color: rgba(126, 231, 135, 0.45);">
-                    <input type="text" id="single-file-name" class="combo-input" style="width: 220px;" value="gemini_chat.txt" placeholder="filename.ext">
+                    <input type="text" id="single-file-name" class="combo-input" style="width: 220px;" value="gemini_chat.html" placeholder="filename.ext">
                     <button class="combo-btn" style="color:#7ee787; background:rgba(46,160,67,0.18); border-left-color:rgba(126,231,135,0.45);" onclick="downloadSingleFullFile()">💾   Save  In  1  File  (Any Ext)</button>
                 </div>
+                
             </div>
 
             <!--   4.  LINE  JUMP  &  MULTI-FILE  SPLITTER  CONTROLS   -->
@@ -556,7 +564,7 @@
                         <input type="number" id="split-count-input" class="combo-input" placeholder="File  Count">
                         <button class="combo-btn" onclick="generateSplitFileButtons(false)">🪶   Enter  Split  Files  Count</button>
                     </div>
-                    <input type="text" id="auto-ext-input" class="combo-input" style="width:90px; background:rgba(0,0,0,0.45); border:1px solid rgba(201,162,85,0.4); border-radius:8px;" value=".txt" title="Extension for Auto-Split">
+                    <input type="text" id="auto-ext-input" class="combo-input" style="width:90px; background:rgba(0,0,0,0.45); border:1px solid rgba(201,162,85,0.4); border-radius:8px;" value=".html" title="Extension for Auto-Split">
                     <button class="nav-btn" style="border-color:#c9a255; color:#c9a255; padding:12px 16px;" onclick="generateSplitFileButtons(true)">⚡   Auto-Fill  Equal  Line  Splits</button>
                 </div>
 
@@ -1217,15 +1225,15 @@
             }
             rowsLayer.innerHTML = htmlBuffer;
         }
+        
 
         // ================================================================================
-        //      🪄  5.  SMOOTH  CTRL+WHEEL  &  PINCH-TO-ZOOM  (ZERO  LAG)  🪄
+        //      🪄  5.  SMOOTH  FONT  SCALING  &  NATIVE  GPU  PINCH-TO-ZOOM  🪄
         // ================================================================================
         function applyZoom(newSize) {
             const clamped = Math.min(Math.max(9, Math.round(newSize)), 42);
             if (clamped === fontSize) return;
 
-            // Keep top visible line anchored during zoom
             const currentTopLine = scroller.scrollTop / rowHeight;
             fontSize = clamped;
             updateScrollMetrics();
@@ -1233,6 +1241,7 @@
             renderVisibleVirtualRows();
         }
 
+        // Desktop Ctrl + Wheel font zoom (Mobile uses native 60FPS GPU pinch-zoom like GitHub!)
         editorContainer.addEventListener('wheel', (e) => {
             if (e.ctrlKey) {
                 e.preventDefault();
@@ -1240,33 +1249,8 @@
             }
         }, { passive: false });
 
-        let pinchStartDist = 0;
-        let pinchStartFont = 14;
-        editorContainer.addEventListener('touchstart', (e) => {
-            if (e.touches.length === 2) {
-                e.preventDefault();
-                pinchStartDist = Math.hypot(
-                    e.touches[0].pageX - e.touches[1].pageX,
-                    e.touches[0].pageY - e.touches[1].pageY
-                );
-                pinchStartFont = fontSize;
-            }
-        }, { passive: false });
-
-        editorContainer.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 2 && pinchStartDist > 0) {
-                e.preventDefault();
-                const dist = Math.hypot(
-                    e.touches[0].pageX - e.touches[1].pageX,
-                    e.touches[0].pageY - e.touches[1].pageY
-                );
-                const scale = dist / pinchStartDist;
-                applyZoom(pinchStartFont * scale);
-            }
-        }, { passive: false });
-
         // ================================================================================
-        //      🪄  6.  COPY  FUNCTIONS,  JUMP  TO  LINE,  SINGLE  &  MULTI-SPLIT  🪄
+        //      🪄  6.  COPY  FUNCTIONS,  LINE-RANGE  COPY,  JUMP  &  MULTI-SPLIT  🪄
         // ================================================================================
         function copyCodeBlock(blockId, btnElem) {
             const rawCode = CODE_BLOCKS_MAP[blockId] || '';
@@ -1283,6 +1267,43 @@
                 alert('🎉   Entire  Formatted  Text  Copied  To  Clipboard  !!');
             });
         }
+
+        // Copy Specific Line Range from Top Action Bar (e.g., "1-25" or "10-45")
+        function copySpecificLineRange(btnElem) {
+            const rawVal = document.getElementById('top-copy-range-input').value.trim();
+            if (!rawVal) {
+                alert('🪄 Please enter a line range first (e.g., 1-25)!');
+                return;
+            }
+
+            const parts = rawVal.split(/[-:to\s]+/).filter(Boolean);
+            const start = parseInt(parts[0]);
+            const end = parseInt(parts[1] || parts[0]);
+
+            if (isNaN(start) || isNaN(end) || start < 1 || end < start) {
+                alert('⚠️ Invalid line range! Use format like 1-25 or 10-50.');
+                return;
+            }
+
+            const startIdx = Math.max(0, start - 1);
+            const endIdx = Math.min(VIRTUAL_LINES.length, end);
+            const selectedText = VIRTUAL_LINES.slice(startIdx, endIdx).map(l => l.raw).join('\n');
+
+            navigator.clipboard.writeText(selectedText).then(() => {
+                const originalText = btnElem.innerText;
+                btnElem.innerText = `✅  Copied (${startIdx + 1}-${endIdx})!`;
+                btnElem.style.background = '#58a6ff';
+                btnElem.style.color = '#090d13';
+                setTimeout(() => {
+                    btnElem.innerText = originalText;
+                    btnElem.style.background = '';
+                    btnElem.style.color = '';
+                }, 1600);
+            }).catch(err => {
+                alert('Clipboard Write Failed: ' + err);
+            });
+        }
+        
 
         function togglePasteDrawer(forceOpen) {
             const drawer = document.getElementById('paste-drawer');
