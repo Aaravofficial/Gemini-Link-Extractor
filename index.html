@@ -25,8 +25,8 @@
             user-select: none; 
         }
         
-        /* Allow highlighting ONLY inside the chat boxes and inputs */
-        .v-content, .paste-area, .url-input-box { 
+        /* Allow continuous multi-line highlighting across the entire chat viewport */
+        #virtual-rows-layer, .v-row, .v-content, .paste-area, .url-input-box { 
             -webkit-user-select: text; 
             user-select: text; 
         }
@@ -167,15 +167,19 @@
             border: 1px solid rgba(165, 214, 255, 0.15);
         }
 
+
         /*   ============================================================
-                 🪄  ULTRA-SMOOTH  VIRTUALIZED  VIEWPORT  (30K+ LINES)  🪄
+                 🪄  ULTRA-SMOOTH  VIRTUALIZED  VIEWPORT  (120/240 FPS)  🪄
              ============================================================   */
         .textarea-container {
             width: 100%; height: 56vh; min-height: 460px;
             background: #090d13; border: 1px solid rgba(88, 166, 255, 0.18);
             border-radius: 12px; position: relative; overflow: hidden;
-            touch-action: manipulation;
+            /* Locks 2-finger pinch inside the box to text-zoom, while outside zooms the page */
+            touch-action: pan-x pan-y;
             contain: layout paint size;
+            --v-font-size: 14px;
+            --v-row-height: 24.5px;
         }
 
         #virtual-scroller {
@@ -183,6 +187,7 @@
             overflow: auto; position: relative;
             will-change: scroll-position;
             overscroll-behavior: contain;
+            touch-action: pan-x pan-y;
         }
         #virtual-scroller::-webkit-scrollbar { width: 12px; height: 12px; }
         #virtual-scroller::-webkit-scrollbar-track { background: #06090e; }
@@ -193,24 +198,28 @@
         #virtual-scroller::-webkit-scrollbar-thumb:hover { background: rgba(88, 166, 255, 0.65); }
 
         #virtual-phantom {
-            width: 100%; pointer-events: none;
+            width: 100%; pointer-events: none; display: none;
         }
 
         #virtual-rows-layer {
-            position: absolute; top: 0; left: 0; min-width: 100%;
-            will-change: transform;
+            position: relative; top: 0; left: 0;
+            min-width: 100%; width: max-content;
+            font-size: var(--v-font-size);
+            line-height: var(--v-row-height);
         }
 
-        /*   Individual  Virtualized  Row   */
+        /*   Individual  Row  (Driven by GPU CSS Variables — Zero DOM Rebuild on Zoom)   */
         .v-row {
-            display: flex; align-items: center; width: 100%;
+            display: flex; align-items: center;
+            min-width: 100%; width: max-content;
+            height: var(--v-row-height);
             font-family: 'JetBrains Mono', monospace;
             white-space: pre;
             border-bottom: 1px solid transparent;
         }
         .v-row:hover { background: rgba(88, 166, 255, 0.04); }
 
-        /*   GitHub  Line  Number  Gutter   */
+        /*   GitHub  Line  Number  Gutter  (Uses data-ln so it is never copied in selections)   */
         .v-gutter {
             width: 68px; min-width: 68px; height: 100%;
             display: inline-flex; align-items: center; justify-content: flex-end;
@@ -221,6 +230,9 @@
             font-size: 0.9em;
             position: sticky; left: 0; z-index: 3;
         }
+        .v-gutter::before {
+            content: attr(data-ln);
+        }
 
         /*   Line  Content  Cell   */
         .v-content {
@@ -230,6 +242,7 @@
             color: #c9d1d9;
             position: relative;
         }
+        
 
         /*   ============================================================
                  🎨  REFINED  EDITORIAL  PALETTE,  HEADERS  &  STEPS
@@ -458,9 +471,9 @@
     <div id="splitter-master-wrapper">
 
         <!-- SYSTEM DEBUG TERMINAL -->
-        <div id="debug-terminal" style="position: fixed; bottom: 20px; right: 20px; width: 450px; background: rgba(5, 8, 13, 0.95); border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 12px; z-index: 9999; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px);">
+        <div id="debug-terminal" style="position: fixed; bottom: 20px; right: 20px; width: 650px; background: rgba(5, 8, 13, 0.95); border: 1px solid rgba(88, 166, 255, 0.4); border-radius: 12px; z-index: 9999; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8); backdrop-filter: blur(10px);">
             <div style="background: rgba(88, 166, 255, 0.15); padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(88, 166, 255, 0.3);">
-                <span style="color: #58a6ff; font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px;">⚙️ SYSTEM DEBUGGER</span>
+                <span style="color: #58a6ff; font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px;">⚙️   SYSTEM  DEBUGGER</span>
                 <div style="display: flex; gap: 12px; align-items: center;">
                     <button onclick="copyDebugLogs(this)" style="background: rgba(88, 166, 255, 0.2); border: 1px solid #58a6ff; color: #fff; border-radius: 4px; padding: 4px 10px; font-family: 'Montserrat', sans-serif; font-size: 10px; font-weight: 600; cursor: pointer; transition: 0.2s;">📋 Copy Logs</button>
                     <button onclick="document.getElementById('debug-terminal').style.display='none'" style="background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 14px; font-weight: bold;">✕</button>
@@ -473,7 +486,7 @@
         
         <!-- Top Bar -->
         <div class="top-action-bar">
-            <div class="brand-badge">🪄   GEMINI  CHAT  VIEWER  &  SPLITTER  |  AaRAv</div>
+            <div class="brand-badge">🪄   GEMINI  CHAT  VIEWER  &  SPLITTER   |   itz  Aarav</div>
 
             <div class="top-btn-group">
                 <button class="nav-btn" onclick="togglePasteDrawer()">📋   Paste  Chat / Text</button>
@@ -519,9 +532,9 @@
                     <span class="rule-pill">🟣  Vertical Line Steps  +  Colored Text</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Font: 14px  |  ⚡ 60FPS Virtual Engine</span>
-                    <button class="inline-copy-btn" style="margin-left:4px; padding:2px 8px;" onclick="applyZoom(fontSize - 1)">➖</button>
-                    <button class="inline-copy-btn" style="margin-left:0; padding:2px 8px;" onclick="applyZoom(fontSize + 1)">➕</button>
+                    <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#7ee787;" id="zoom-indicator">🔍  Zoom   :   14px   |   ⚡  120 / 240FPS  Engine</span>
+                    <button class="inline-copy-btn" style="margin-left:4px; padding:2px 8px;" onclick="smoothStepZoom(-2)">➖</button>
+                    <button class="inline-copy-btn" style="margin-left:0; padding:2px 8px;" onclick="smoothStepZoom(2)">➕</button>
                 </div>
             </div>
 
@@ -1171,36 +1184,78 @@
         
 
         // ================================================================================
-        //      🪄  4.  CORE  60FPS  VIRTUAL  SCROLLER  RENDER  ENGINE  🪄
+        //      🪄  4.  NON-DESTRUCTIVE  RENDER  ENGINE  (PERSISTENT  TEXT  SELECTION)  🪄
         // ================================================================================
+        let isMassiveVirtualMode = false;
+        let lastRenderedStart = -1;
+        let lastRenderedEnd = -1;
+
         function setVirtualLines(linesArray) {
             VIRTUAL_LINES = linesArray.length > 0 ? linesArray : [{ raw: '', html: '', type: 'normal' }];
             document.getElementById('total-lines-count').value = VIRTUAL_LINES.length;
+
+            // For normal & long chats (up to 5,000 lines), mount all rows once in direct flow.
+            // This guarantees 0 DOM mutations during scroll so blue text selection NEVER disappears!
+            isMassiveVirtualMode = VIRTUAL_LINES.length > 5000;
+            lastRenderedStart = -1;
+            lastRenderedEnd = -1;
+
             updateScrollMetrics();
-            renderVisibleVirtualRows();
+
+            if (!isMassiveVirtualMode) {
+                phantom.style.display = 'none';
+                rowsLayer.style.position = 'relative';
+                rowsLayer.style.transform = 'none';
+
+                let htmlBuffer = '';
+                for (let i = 0; i < VIRTUAL_LINES.length; i++) {
+                    const item = VIRTUAL_LINES[i];
+                    htmlBuffer += `<div class="v-row type-${item.type}">` +
+                                  `<span class="v-gutter" data-ln="${i + 1}"></span>` +
+                                  `<div class="v-content">${item.html || ''}</div>` +
+                                  `</div>`;
+                }
+                rowsLayer.innerHTML = htmlBuffer;
+            } else {
+                phantom.style.display = 'block';
+                rowsLayer.style.position = 'absolute';
+                renderVisibleVirtualRows(true);
+            }
         }
 
         function updateScrollMetrics() {
-            rowHeight = Math.round(fontSize * 1.75);
-            const totalHeight = VIRTUAL_LINES.length * rowHeight;
-            phantom.style.height = `${totalHeight}px`;
-            rowsLayer.style.fontSize = `${fontSize}px`;
-            rowsLayer.style.lineHeight = `${rowHeight}px`;
-            document.getElementById('zoom-indicator').innerText = `🔍  Zoom   :   ${fontSize}px  |  ⚡ 60FPS Virtual Engine`;
+            rowHeight = fontSize * 1.75;
+            editorContainer.style.setProperty('--v-font-size', `${fontSize.toFixed(2)}px`);
+            editorContainer.style.setProperty('--v-row-height', `${rowHeight.toFixed(2)}px`);
+
+            if (isMassiveVirtualMode) {
+                phantom.style.height = `${Math.round(VIRTUAL_LINES.length * rowHeight)}px`;
+            }
+            document.getElementById('zoom-indicator').innerText =
+                `🔍  Zoom   :   ${Math.round(fontSize)}px  |  ⚡ 120/240FPS Engine`;
         }
 
         let scrollTicking = false;
         scroller.addEventListener('scroll', () => {
+            if (!isMassiveVirtualMode) return; // Direct flow needs zero JS on scroll!
             if (!scrollTicking) {
                 scrollTicking = true;
                 requestAnimationFrame(() => {
-                    renderVisibleVirtualRows();
+                    renderVisibleVirtualRows(false);
                     scrollTicking = false;
                 });
             }
         }, { passive: true });
 
-        function renderVisibleVirtualRows() {
+        function renderVisibleVirtualRows(forceRebuild = false) {
+            if (!isMassiveVirtualMode) return;
+
+            // Do not overwrite DOM if user currently has an active text highlight selection
+            const sel = window.getSelection();
+            if (!forceRebuild && sel && !sel.isCollapsed && rowsLayer.contains(sel.anchorNode)) {
+                return;
+            }
+
             const scrollTop = scroller.scrollTop;
             const viewportHeight = scroller.clientHeight || 500;
 
@@ -1211,43 +1266,143 @@
             const startIdx = Math.max(0, firstVisible - OVERSCAN_ROWS);
             const endIdx = Math.min(total, firstVisible + visibleCount + OVERSCAN_ROWS);
 
+            if (!forceRebuild && startIdx === lastRenderedStart && endIdx === lastRenderedEnd) {
+                return;
+            }
+            lastRenderedStart = startIdx;
+            lastRenderedEnd = endIdx;
+
             const offsetY = startIdx * rowHeight;
-            rowsLayer.style.transform = `translate3d(0, ${offsetY}px, 0)`;
+            rowsLayer.style.transform = `translate3d(0, ${offsetY.toFixed(1)}px, 0)`;
 
             let htmlBuffer = '';
             for (let i = startIdx; i < endIdx; i++) {
                 const item = VIRTUAL_LINES[i];
-                const lineNum = i + 1;
-                htmlBuffer += `<div class="v-row type-${item.type}" style="height:${rowHeight}px;">` +
-                              `<span class="v-gutter">${lineNum}</span>` +
+                htmlBuffer += `<div class="v-row type-${item.type}">` +
+                              `<span class="v-gutter" data-ln="${i + 1}"></span>` +
                               `<div class="v-content">${item.html || ''}</div>` +
                               `</div>`;
             }
             rowsLayer.innerHTML = htmlBuffer;
         }
-        
 
         // ================================================================================
-        //      🪄  5.  SMOOTH  FONT  SCALING  &  NATIVE  GPU  PINCH-TO-ZOOM  🪄
+        //      🪄  5.  120/240 FPS  SUB-PIXEL  PINCH  &  BUTTON  ZOOM  ENGINE  🪄
         // ================================================================================
-        function applyZoom(newSize) {
-            const clamped = Math.min(Math.max(9, Math.round(newSize)), 42);
-            if (clamped === fontSize) return;
+        let zoomAnimFrame = null;
 
-            const currentTopLine = scroller.scrollTop / rowHeight;
+        // Instant Sub-Pixel Zoom (Zero DOM Rebuilds -> Never breaks touch target!)
+        function applyZoom(newSize, anchorOffsetY = null) {
+            const clamped = Math.min(Math.max(9, newSize), 42);
+            if (Math.abs(clamped - fontSize) < 0.01) return;
+
+            const focusY = anchorOffsetY !== null ? anchorOffsetY : (scroller.clientHeight / 2);
+            const lineAtFocus = (scroller.scrollTop + focusY) / rowHeight;
+
             fontSize = clamped;
             updateScrollMetrics();
-            scroller.scrollTop = currentTopLine * rowHeight;
-            renderVisibleVirtualRows();
+
+            scroller.scrollTop = Math.max(0, lineAtFocus * rowHeight - focusY);
+            if (isMassiveVirtualMode) {
+                const offsetY = Math.max(0, lastRenderedStart) * rowHeight;
+                rowsLayer.style.transform = `translate3d(0, ${offsetY.toFixed(1)}px, 0)`;
+            }
         }
 
-        // Desktop Ctrl + Wheel font zoom (Mobile uses native 60FPS GPU pinch-zoom like GitHub!)
+        // Smooth 120/240 FPS Animated Glide for ➖ and ➕ Buttons
+        function smoothStepZoom(delta) {
+            if (zoomAnimFrame) cancelAnimationFrame(zoomAnimFrame);
+            const startFont = fontSize;
+            const targetFont = Math.min(Math.max(9, Math.round(fontSize + delta)), 42);
+            const startTime = performance.now();
+            const duration = 160; // 160ms ultra-smooth cubic ease-out
+
+            function step(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(1, elapsed / duration);
+                const ease = 1 - Math.pow(1 - progress, 3);
+                applyZoom(startFont + (targetFont - startFont) * ease);
+                if (progress < 1) {
+                    zoomAnimFrame = requestAnimationFrame(step);
+                } else {
+                    zoomAnimFrame = null;
+                    if (isMassiveVirtualMode) renderVisibleVirtualRows(true);
+                }
+            }
+            zoomAnimFrame = requestAnimationFrame(step);
+        }
+
+        // Desktop Ctrl + Wheel / Trackpad Pinch inside the box
         editorContainer.addEventListener('wheel', (e) => {
             if (e.ctrlKey) {
                 e.preventDefault();
-                applyZoom(fontSize + (e.deltaY < 0 ? 1 : -1));
+                const rect = scroller.getBoundingClientRect();
+                const offsetY = e.clientY - rect.top;
+                const delta = -e.deltaY * 0.04;
+                applyZoom(fontSize + (Math.abs(delta) > 0.15 ? delta : (e.deltaY < 0 ? 1 : -1)), offsetY);
             }
         }, { passive: false });
+
+        // Mobile 2-Finger Pinch-to-Zoom INSIDE the Box (120/240 FPS Sub-Pixel Scaling)
+        let isPinchingBox = false;
+        let pinchStartDist = 0;
+        let pinchStartFont = 14;
+        let pinchMidY = 0;
+        let pendingPinchScale = null;
+        let pinchRafPending = false;
+
+        function getTouchDistance(t1, t2) {
+            return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+        }
+
+        editorContainer.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                if (e.cancelable) e.preventDefault();
+                if (zoomAnimFrame) { cancelAnimationFrame(zoomAnimFrame); zoomAnimFrame = null; }
+                isPinchingBox = true;
+                pinchStartDist = getTouchDistance(e.touches[0], e.touches[1]);
+                pinchStartFont = fontSize;
+                const rect = scroller.getBoundingClientRect();
+                pinchMidY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+            }
+        }, { passive: false });
+
+        editorContainer.addEventListener('touchmove', (e) => {
+            if (e.touches.length === 2) {
+                if (e.cancelable) e.preventDefault();
+                const dist = getTouchDistance(e.touches[0], e.touches[1]);
+                if (!isPinchingBox || pinchStartDist <= 0) {
+                    isPinchingBox = true;
+                    pinchStartDist = dist;
+                    pinchStartFont = fontSize;
+                    const rect = scroller.getBoundingClientRect();
+                    pinchMidY = ((e.touches[0].clientY + e.touches[1].clientY) / 2) - rect.top;
+                    return;
+                }
+                pendingPinchScale = dist / pinchStartDist;
+                if (!pinchRafPending) {
+                    pinchRafPending = true;
+                    requestAnimationFrame(() => {
+                        pinchRafPending = false;
+                        if (pendingPinchScale !== null) {
+                            applyZoom(pinchStartFont * pendingPinchScale, pinchMidY);
+                        }
+                    });
+                }
+            }
+        }, { passive: false });
+
+        function endPinchGesture(e) {
+            if (isPinchingBox && e.touches.length < 2) {
+                isPinchingBox = false;
+                pinchStartDist = 0;
+                pendingPinchScale = null;
+                if (isMassiveVirtualMode) renderVisibleVirtualRows(true);
+            }
+        }
+        editorContainer.addEventListener('touchend', endPinchGesture, { passive: true });
+        editorContainer.addEventListener('touchcancel', endPinchGesture, { passive: true });
+
 
         // ================================================================================
         //      🪄  6.  COPY  FUNCTIONS,  LINE-RANGE  COPY,  JUMP  &  MULTI-SPLIT  🪄
