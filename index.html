@@ -1065,7 +1065,7 @@
         }
 
 
-        // Updated Extraction Logic (With Wait-For-Selector & Blank Page Shield)
+        // Updated Extraction Logic (Forces HTML Payload for Flawless Q/A Boundaries)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1074,12 +1074,13 @@
             logDebug('Starting extraction for: ' + urlInput, 'info');
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
-            let rawPayload = '';
+            let renderedHtmlPayload = '';
+            let markdownPayload = '';
             let resolvedShareUrl = urlInput;
             const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
             const proxyUrl = 'https://' + myVercelDomain + '/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
-            // Shield: Never accept blank Google footer pages as a valid chat payload!
+            // Shield against blank Google footer pages
             function isValid(pt) {
                 return pt && pt.length > 150 && !pt.includes('/intl/en/about/products') && (pt.includes('You said') || pt.includes('user-query'));
             }
@@ -1095,8 +1096,8 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    if (isValid(data.markdown)) rawPayload = data.markdown;
-                    else if (isValid(data.renderedHtml)) rawPayload = data.renderedHtml;
+                    if (isValid(data.renderedHtml)) renderedHtmlPayload = data.renderedHtml;
+                    if (isValid(data.markdown)) markdownPayload = data.markdown;
                 } else {
                     const errText = await rawRes.text();
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
@@ -1106,44 +1107,61 @@
             }
 
             try {
-                if (!isValid(rawPayload)) {
-                    logDebug('Vercel timeout/blank page detected. Retrying directly from Headless Stream...', 'warn');
-                    showStatus('Streaming Chat Payload 🪄 .....');
-                    const directRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                // Direct Stream Fallback: If Vercel failed or timed out, fetch HTML directly from browser!
+                if (!isValid(renderedHtmlPayload)) {
+                    logDebug('Vercel HTML missing. Retrying directly from Headless Stream (HTML Mode)...', 'warn');
+                    showStatus('Streaming Chat Payload (DOM Mode) 🪄 .....');
+                    const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                         headers: { 
                             'Accept': 'text/plain', 
-                            'X-Return-Format': 'markdown', 
+                            'X-Return-Format': 'html', 
                             'X-No-Cache': 'true',
                             'X-Wait-For-Selector': 'user-query' 
                         }
                     });
-                    if (directRes.ok) {
-                        const fallbackText = await directRes.text();
-                        if (isValid(fallbackText)) {
-                            rawPayload = fallbackText;
-                        }
+                    if (directHtmlRes.ok) {
+                        const fallbackHtml = await directHtmlRes.text();
+                        if (isValid(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
+                    }
+                }
+                
+                // Fetch markdown fallback directly if missing
+                if (!isValid(markdownPayload)) {
+                    const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown', 'X-No-Cache': 'true' }
+                    });
+                    if (directMdRes.ok) {
+                        const fallbackMd = await directMdRes.text();
+                        if (isValid(fallbackMd)) markdownPayload = fallbackMd;
                     }
                 }
 
-                if (isValid(rawPayload)) {
-                    logDebug('Rendered Payload Received: ' + rawPayload.length.toLocaleString() + ' Characters.', 'info');
-                    
-                    const turns = cleanScrapedGeminiMarkdown(rawPayload);
-                    logDebug('Extracted ' + turns.length + ' Conversation Turn(s).', turns.length > 0 ? 'success' : 'warn');
+                let turns = [];
+                // 1. ALways prioritize HTML DOM Parsing (100% boundary accuracy)
+                if (isValid(renderedHtmlPayload)) {
+                    logDebug('Parsing HTML DOM Payload (' + renderedHtmlPayload.length.toLocaleString() + ' chars)...', 'info');
+                    turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload);
+                }
 
-                    if (turns.length > 0) {
-                        const firstT = turns[0];
-                        const lastT = turns[turns.length - 1];
-                        logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
-                        if (turns.length > 1) {
-                            logDebug('Turn ' + turns.length + ' Check -> Q' + turns.length + ': ' + lastT.question.length + ' chars | R' + turns.length + ': ' + lastT.answer.length + ' chars', 'info');
-                        }
+                // 2. Fallback to Markdown only if HTML failed
+                if (turns.length === 0 && isValid(markdownPayload)) {
+                    logDebug('HTML DOM failed. Falling back to Markdown Heuristic parser...', 'warn');
+                    turns = cleanScrapedGeminiMarkdown(markdownPayload);
+                }
 
-                        buildFormattedChatLines(turns);
-                        hideStatus();
-                        logDebug('Chat successfully formatted into UI engine!', 'success');
-                        return;
+                if (turns.length > 0) {
+                    logDebug('Extracted ' + turns.length + ' Conversation Turn(s).', 'success');
+                    const firstT = turns[0];
+                    const lastT = turns[turns.length - 1];
+                    logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
+                    if (turns.length > 1) {
+                        logDebug('Turn ' + turns.length + ' Check -> Q' + turns.length + ': ' + lastT.question.length + ' chars | R' + turns.length + ': ' + lastT.answer.length + ' chars', 'info');
                     }
+
+                    buildFormattedChatLines(turns);
+                    hideStatus();
+                    logDebug('Chat successfully formatted into UI engine!', 'success');
+                    return;
                 }
 
                 throw new Error('Gemini took too long to load (Large Chat). Click Extract again to retry!');
@@ -1153,7 +1171,7 @@
                 alert('⚠️ Extraction timeout: ' + err.message);
             }
         }
-
+        
         
         //   Debugger Copy Function
         function copyDebugLogs(btnElem) {
