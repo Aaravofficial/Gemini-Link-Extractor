@@ -1065,7 +1065,7 @@
         }
 
 
-        // Updated Extraction Logic (Preserves full ?social_preview=false&skid=... URL)
+        // Updated Extraction Logic (With Wait-For-Selector & Blank Page Shield)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1079,6 +1079,11 @@
             const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
             const proxyUrl = 'https://' + myVercelDomain + '/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
+            // Shield: Never accept blank Google footer pages as a valid chat payload!
+            function isValid(pt) {
+                return pt && pt.length > 150 && !pt.includes('/intl/en/about/products') && (pt.includes('You said') || pt.includes('user-query'));
+            }
+
             try {
                 logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
                 const rawRes = await fetch(proxyUrl);
@@ -1090,7 +1095,8 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    rawPayload = data.renderedHtml ? data.renderedHtml : (data.markdown ? data.markdown : '');
+                    if (isValid(data.markdown)) rawPayload = data.markdown;
+                    else if (isValid(data.renderedHtml)) rawPayload = data.renderedHtml;
                 } else {
                     const errText = await rawRes.text();
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
@@ -1100,22 +1106,26 @@
             }
 
             try {
-                // Direct Stream Fallback if needed (using full resolvedShareUrl with ?social_preview=false&skid=...)
-                if (!rawPayload || rawPayload.trim().length <= 40 || !rawPayload.includes('You said')) {
-                    logDebug('Fetching directly from Headless Stream (Markdown route)...', 'warn');
+                if (!isValid(rawPayload)) {
+                    logDebug('Vercel timeout/blank page detected. Retrying directly from Headless Stream...', 'warn');
                     showStatus('Streaming Chat Payload 🪄 .....');
                     const directRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' }
+                        headers: { 
+                            'Accept': 'text/plain', 
+                            'X-Return-Format': 'markdown', 
+                            'X-No-Cache': 'true',
+                            'X-Wait-For-Selector': 'user-query' 
+                        }
                     });
                     if (directRes.ok) {
                         const fallbackText = await directRes.text();
-                        if (fallbackText.length > rawPayload.length) {
+                        if (isValid(fallbackText)) {
                             rawPayload = fallbackText;
                         }
                     }
                 }
 
-                if (rawPayload && rawPayload.trim().length > 40) {
+                if (isValid(rawPayload)) {
                     logDebug('Rendered Payload Received: ' + rawPayload.length.toLocaleString() + ' Characters.', 'info');
                     
                     const turns = cleanScrapedGeminiMarkdown(rawPayload);
@@ -1136,15 +1146,15 @@
                     }
                 }
 
-                throw new Error('No conversation turns found in the rendered share link.');
+                throw new Error('Gemini took too long to load (Large Chat). Click Extract again to retry!');
             } catch (err) {
                 logDebug('Execution Failed: ' + err.message, 'error');
                 hideStatus();
-                alert('⚠️ Extraction failed. Check the System Debugger.');
+                alert('⚠️ Extraction timeout: ' + err.message);
             }
         }
 
-
+        
         //   Debugger Copy Function
         function copyDebugLogs(btnElem) {
             const logOutput = document.getElementById('debug-log-output');
