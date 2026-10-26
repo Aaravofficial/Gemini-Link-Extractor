@@ -1079,23 +1079,13 @@
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
             let renderedHtmlPayload = '';
+            let googleScriptsPayload = '';
             let resolvedShareUrl = urlInput;
-            const proxyUrl = 'https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=' + encodeURIComponent(urlInput);
-
-            function hasConversationContent(htmlStr) {
-                if (!htmlStr || htmlStr.length < 300) return false;
-                return (
-                    htmlStr.includes('user-query') ||
-                    htmlStr.includes('model-response') ||
-                    htmlStr.includes('query-text') ||
-                    htmlStr.includes('message-content') ||
-                    htmlStr.includes('You said')
-                );
-            }
+            const proxyUrl = 'https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=' + encodeURIComponent(urlInput) + '&t=' + Date.now();
 
             try {
                 logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
-                const rawRes = await fetch(proxyUrl);
+                const rawRes = await fetch(proxyUrl, { cache: 'no-store' });
                 logDebug('Vercel HTTP Status : ' + rawRes.status, rawRes.ok ? 'success' : 'error');
 
                 if (rawRes.ok) {
@@ -1104,79 +1094,48 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    const vHtml = data.renderedHtml ? data.renderedHtml : '';
-                    logDebug('Vercel HTML Payload Size : ' + vHtml.length.toLocaleString() + ' chars', 'info');
+                    googleScriptsPayload = data.googleDataScripts ? data.googleDataScripts : '';
+                    renderedHtmlPayload = data.renderedHtml ? data.renderedHtml : '';
 
-                    if (vHtml) {
-                        window.__DEBUG_RAW_HTML = vHtml;
-                    }
-                    if (hasConversationContent(vHtml)) {
-                        renderedHtmlPayload = vHtml;
-                    }
+                    logDebug(
+                        'Vercel Returned -> Google AF_initData Scripts: ' + googleScriptsPayload.length.toLocaleString() +
+                        ' chars | Jina HTML: ' + renderedHtmlPayload.length.toLocaleString() + ' chars',
+                        'info'
+                    );
+
+                    // Save BOTH into the debug download file so we can inspect the exact structure!
+                    window.__DEBUG_RAW_HTML =
+                        '<!-- === GOOGLE AF_INITDATA SCRIPTS (' + googleScriptsPayload.length + ' chars) === -->\n' +
+                        googleScriptsPayload +
+                        '\n\n<!-- === JINA RENDERED HTML (' + renderedHtmlPayload.length + ' chars) === -->\n' +
+                        renderedHtmlPayload;
                 } else {
                     const errText = await rawRes.text();
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
                 }
             } catch (vercelErr) {
-                logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct HTML stream...', 'warn');
+                logDebug('Vercel proxy notice (' + vercelErr.message + ').', 'warn');
             }
 
             try {
-                // If Vercel timed out or returned an unrendered shell, fetch HTML directly from Jina
-                if (!hasConversationContent(renderedHtmlPayload)) {
-                    logDebug('Fetching Rendered HTML directly from Headless Stream for: ' + resolvedShareUrl, 'warn');
-                    showStatus('Streaming Rendered HTML DOM 🪄 .....');
-
-                    const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: {
-                            'Accept': 'text/plain',
-                            'X-Return-Format': 'html'
-                        }
-                    });
-
-                    if (directHtmlRes.ok) {
-                        let rawDirectHtml = await directHtmlRes.text();
-                        rawDirectHtml = rawDirectHtml
-                            .replace(/<head[\s\S]*?<\/head>/gi, '')
-                            .replace(/<script[\s\S]*?<\/script>/gi, '')
-                            .replace(/<style[\s\S]*?<\/style>/gi, '')
-                            .replace(/<svg[\s\S]*?<\/svg>/gi, '');
-
-                        logDebug('Direct HTML Payload Size : ' + rawDirectHtml.length.toLocaleString() + ' chars', 'info');
-                        window.__DEBUG_RAW_HTML = rawDirectHtml;
-
-                        if (hasConversationContent(rawDirectHtml)) {
-                            renderedHtmlPayload = rawDirectHtml;
-                        }
-                    }
-                }
-
-                if (hasConversationContent(renderedHtmlPayload)) {
-                    logDebug('Parsing Rendered HTML DOM (' + renderedHtmlPayload.length.toLocaleString() + ' chars)...', 'info');
+                if (renderedHtmlPayload && renderedHtmlPayload.length > 300) {
                     const turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload);
-
                     if (turns.length > 0) {
                         logDebug('Extracted ' + turns.length + ' Conversation Turn(s).', 'success');
-                        const firstT = turns[0];
-                        const lastT = turns[turns.length - 1];
-                        logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
-                        if (turns.length > 1) {
-                            logDebug('Turn ' + turns.length + ' Check -> Q' + turns.length + ': ' + lastT.question.length + ' chars | R' + turns.length + ': ' + lastT.answer.length + ' chars', 'info');
-                        }
-
                         buildFormattedChatLines(turns);
                         hideStatus();
                         logDebug('Chat successfully formatted into UI engine!', 'success');
                         return;
                     }
                 }
-
-                throw new Error('Conversation DOM not ready yet. Click [Save Raw Vercel HTML] to inspect or click Extract again.');
+                hideStatus();
+                logDebug('Ready for inspection! Click [💾 Save Raw Vercel HTML] below to download the raw structure.', 'warn');
             } catch (err) {
                 logDebug('Execution Failed: ' + err.message, 'error');
                 hideStatus();
             }
         }
+
 
         // Action for the Download Raw HTML button
         function downloadRawVercelHtml(btnElem) {
