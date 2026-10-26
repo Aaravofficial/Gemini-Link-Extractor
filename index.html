@@ -395,13 +395,6 @@
         .tok-step-num { color: #d2a8ff; font-weight: 700; margin-right: 6px; }
         .tok-quote { color: #a5d6ff; font-style: italic; border-left: 3px solid #58a6ff; padding-left: 12px; }
         
-        /* Diff Code Block Colors */
-        .tok-diff-add { color: #7ee787; font-weight: 600; }
-        .tok-diff-del { color: #ff7b72; font-weight: 600; }
-        .tok-diff-info { color: #ffa657; font-weight: 600; }
-        .tok-diff-comment { color: #8b949e; font-style: italic; }
-        .tok-diff-header { color: #d2a8ff; font-weight: 700; }
-
         /*   Raw / Paste  Modal  Box   */
         .paste-drawer {
             display: none; flex-direction: column; gap: 14px; width: 100%;
@@ -741,43 +734,73 @@
         //          - 4 Row Gaps between Response and Next Question
         //          - 2 Rows Prefix & Suffix Gap: Above & Below Copiable Blocks
         // ================================================================================
-        // ================================================================================
-        //      🪄  2.  STRICT  GEMINI  ROW-GAP  &  VISUAL  FORMATTER  ENGINE  🪄
-        // ================================================================================
         function buildFormattedChatLines(turnsArray) {
             const out = [];
             CODE_BLOCKS_MAP = {};
             let blockCounter = 0;
 
+            // Helper to push exact N TRUE blank rows (removing accidental trailing blanks first)
             function enforceExactBlankRows(count) {
                 while (out.length > 0 && out[out.length - 1].raw.trim() === '' && out[out.length - 1].type !== 'code-line') {
                     out.pop();
                 }
                 for (let i = 0; i < count; i++) {
-                    out.push({ raw: '', html: '', type: 'gap' });
+                    out.push({
+                        raw: '',
+                        html: '',
+                        type: 'gap'
+                    });
                 }
             }
 
             turnsArray.forEach((turn, turnIdx) => {
                 const turnNumber = turnIdx + 1;
 
-                if (turnIdx > 0) enforceExactBlankRows(4);
+                // 4 ROWS GAP BETWEEN PREVIOUS RESPONSE & NEXT QUESTION
+                if (turnIdx > 0) {
+                    enforceExactBlankRows(4);
+                }
 
+                // --- 1. QUESTION HEADER BANNER ---
                 const qHeaderRaw = `Question  ${turnNumber}   : ~`;
-                out.push({ raw: qHeaderRaw, html: `👤  ${escHtml(qHeaderRaw)}`, type: 'question-header' });
-                enforceExactBlankRows(2);
-
-                const qLines = (turn.question || '').replace(/\r/g, '').trim().split('\n');
-                qLines.forEach((qLine) => {
-                    if (qLine.trim() === '') out.push({ raw: '', html: '', type: 'question' });
-                    else out.push({ raw: qLine, html: formatInlineRichText(qLine), type: 'question' });
+                out.push({
+                    raw: qHeaderRaw,
+                    html: `👤  ${escHtml(qHeaderRaw)}`,
+                    type: 'question-header'
                 });
 
-                enforceExactBlankRows(3);
-                const rHeaderRaw = `Response   ${turnNumber}   : ~`;
-                out.push({ raw: rHeaderRaw, html: `🤖  ${escHtml(rHeaderRaw)}`, type: 'response-header' });
+                // --- 2. EXACTLY 2 LINE GAPS AFTER QUESTION HEADER ---
                 enforceExactBlankRows(2);
 
+                // --- 3. EXACT USER QUESTION BODY (PRESERVING INTERNAL LINE BREAKS & SPACING) ---
+                const qLines = (turn.question || '').replace(/\r/g, '').trim().split('\n');
+                qLines.forEach((qLine) => {
+                    if (qLine.trim() === '') {
+                        out.push({ raw: '', html: '', type: 'question' });
+                    } else {
+                        out.push({
+                            raw: qLine,
+                            html: formatInlineRichText(qLine),
+                            type: 'question'
+                        });
+                    }
+                });
+
+                // --- 4. EXACTLY 3 LINE GAPS BEFORE RESPONSE HEADER ---
+                enforceExactBlankRows(3);
+
+                // --- 5. RESPONSE HEADER BANNER ---
+                const rHeaderRaw = `Response   ${turnNumber}   : ~`;
+                out.push({
+                    raw: rHeaderRaw,
+                    html: `🤖  ${escHtml(rHeaderRaw)}`,
+                    type: 'response-header'
+                });
+
+                // --- 6. EXACTLY 2 LINE GAPS AFTER RESPONSE HEADER ---
+                enforceExactBlankRows(2);
+
+                // --- 7. GEMINI RESPONSE BODY (PRESERVING EXACT SPACING & FORMATTING) ---
                 const rLines = (turn.answer || '').replace(/\r/g, '').trim().split('\n');
                 let inCodeBlock = false;
                 let currentBlockId = '';
@@ -786,18 +809,22 @@
                 let inStepSequence = false;
 
                 for (let i = 0; i < rLines.length; i++) {
-                    let line = rLines[i];
+                    const line = rLines[i];
                     const trimmed = line.trim();
 
+                    // A. Detect Fenced Copiable Block Start / End (```)
                     if (trimmed.startsWith('```')) {
                         if (!inCodeBlock) {
                             inStepSequence = false;
+                            // ENFORCE 2 ROWS PREFIX GAP ABOVE COPIABLE BLOCK
                             enforceExactBlankRows(2);
+
                             inCodeBlock = true;
                             blockCounter++;
                             currentBlockId = `block_${blockCounter}`;
                             currentBlockLang = trimmed.slice(3).trim() || 'text';
                             currentBlockRawLines = [];
+
                             const headerRaw = '```' + currentBlockLang;
                             out.push({
                                 raw: headerRaw,
@@ -809,35 +836,37 @@
                         } else {
                             inCodeBlock = false;
                             CODE_BLOCKS_MAP[currentBlockId] = currentBlockRawLines.join('\n');
+
                             out.push({
                                 raw: '```',
                                 html: `<span style="color:#58a6ff;font-weight:700;">╰──────────────────────────────────────────────────────╯</span>`,
                                 type: 'code-footer',
                                 blockId: currentBlockId
                             });
-                            while (i + 1 < rLines.length && rLines[i + 1].trim() === '') i++;
-                            if (i + 1 < rLines.length) enforceExactBlankRows(2);
+
+                            while (i + 1 < rLines.length && rLines[i + 1].trim() === '') {
+                                i++;
+                            }
+                            if (i + 1 < rLines.length) {
+                                enforceExactBlankRows(2);
+                            }
                         }
                         continue;
                     }
 
+                    // B. Inside Copiable Block (preserve exact raw code)
                     if (inCodeBlock) {
-                        // Unescape internal triple backticks injected by the DOM parser
-                        line = line.replace(/^` ` `/g, '```');
                         currentBlockRawLines.push(line);
-                        let htmlLine = escHtml(line);
-                        
-                        if (currentBlockLang === 'diff') {
-                            if (line.startsWith('+')) htmlLine = `<span class="tok-diff-add">${htmlLine}</span>`;
-                            else if (line.startsWith('-')) htmlLine = `<span class="tok-diff-del">${htmlLine}</span>`;
-                            else if (line.startsWith('!')) htmlLine = `<span class="tok-diff-info">${htmlLine}</span>`;
-                            else if (line.startsWith('#')) htmlLine = `<span class="tok-diff-comment">${htmlLine}</span>`;
-                            else if (line.startsWith('@@')) htmlLine = `<span class="tok-diff-header tok-bold tok-sub-bullet">${htmlLine}</span>`;
-                        }
-                        out.push({ raw: line, html: htmlLine, type: 'code-line', blockId: currentBlockId });
+                        out.push({
+                            raw: line,
+                            html: escHtml(line),
+                            type: 'code-line',
+                            blockId: currentBlockId
+                        });
                         continue;
                     }
 
+                    // C. Detect Headings (#, ##, ###, ####) -> Cleanly strip the # symbols!
                     const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
                     if (headingMatch) {
                         inStepSequence = false;
@@ -850,32 +879,42 @@
                         continue;
                     }
 
+                    // D. Detect Bullet Points (*, -, •) Including Indented Sub-Bullets!
                     const bulletMatch = line.match(/^(\s*)([*•-])\s+(.*)/);
                     if (bulletMatch) {
                         const leadingSpaces = bulletMatch[1] || '';
                         const bulletContent = bulletMatch[3];
                         const isSubBullet = leadingSpaces.length >= 2;
-                        const bulletSymbol = isSubBullet ? `<span class="tok-sub-bullet">◦</span>` : `<span class="tok-bullet">•</span>`;
+                        const bulletSymbol = isSubBullet
+                            ? `<span class="tok-sub-bullet">◦</span>`
+                            : `<span class="tok-bullet">•</span>`;
                         const indentSpaces = isSubBullet ? '    ' : '  ';
                         const rawClean = `${indentSpaces}${ isSubBullet ? '◦' : '•' } ${stripMarkdownForRawCopy(bulletContent)}`;
 
                         if (inStepSequence) {
                             out.push({
                                 raw: rawClean,
-                                html: `<div class="step-spine"></div>${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`, type: 'step-body' }); } else { out.push({ raw: rawClean, html: `${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`,
+                                html: `<div class="step-spine"></div>${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`,
+                                type: 'step-body'
+                            });
+                        } else {
+                            out.push({
+                                raw: rawClean,
+                                html: `${escHtml(indentSpaces)}${bulletSymbol}${formatInlineRichText(bulletContent)}`,
                                 type: 'bullet'
                             });
                         }
                         continue;
                     }
 
+                    // E. Detect Numbered Step Rows (e.g., "1.   **Massive Speed Difference:**")
                     const stepMatch = trimmed.match(/^(Step\s+\d+[:.-]?|\d+\.)\s+(.*)/i);
                     if (stepMatch) {
                         inStepSequence = true;
                         const stepNum = stepMatch[1];
                         const stepRest = stepMatch[2];
                         out.push({
-                            raw: `${stepNum}${stripMarkdownForRawCopy(stepRest)}`,
+                            raw: `${stepNum} ${stripMarkdownForRawCopy(stepRest)}`,
                             html: `<div class="step-spine"></div><div class="step-dot"></div>` +
                                   `<span class="tok-step-num">${escHtml(stepNum)}</span>${formatInlineRichText(stepRest)}`,
                             type: 'step-start'
@@ -883,6 +922,7 @@
                         continue;
                     }
 
+                    // F. Handle Blank Lines (Preserve Exact Paragraph Spacing from Chat!)
                     if (trimmed === '') {
                         let nextNonEmpty = '';
                         for (let k = i + 1; k < rLines.length; k++) {
@@ -890,14 +930,23 @@
                         }
                         const nextContinuesStep = /^(?:Step\s+\d+[:.-]?|\d+\.|[*•-])\s+/i.test(nextNonEmpty);
                         if (inStepSequence && nextContinuesStep) {
-                            out.push({ raw: '', html: `<div class="step-spine"></div>`, type: 'step-body' });
+                            out.push({
+                                raw: '',
+                                html: `<div class="step-spine"></div>`,
+                                type: 'step-body'
+                            });
                         } else {
                             inStepSequence = false;
-                            out.push({ raw: '', html: '', type: 'normal' });
+                            out.push({
+                                raw: '',
+                                html: '',
+                                type: 'normal'
+                            });
                         }
                         continue;
                     }
 
+                    // G. Continuation of a Step Sequence
                     if (inStepSequence) {
                         out.push({
                             raw: stripMarkdownForRawCopy(line),
@@ -907,6 +956,7 @@
                         continue;
                     }
 
+                    // H. Detect Blockquotes (>)
                     if (trimmed.startsWith('>')) {
                         const cleanQuote = trimmed.replace(/^>\s*/, '');
                         out.push({
@@ -917,6 +967,7 @@
                         continue;
                     }
 
+                    // I. Normal Response Prose Line
                     out.push({
                         raw: stripMarkdownForRawCopy(line),
                         html: formatInlineRichText(line),
@@ -928,8 +979,65 @@
             setVirtualLines(out);
         }
 
+        // Convert plain raw text into Question/Answer turns or format directly
+        function parseRawTextToTurns(rawText, smartFormat = true) {
+            if (!smartFormat) {
+                const rawArr = rawText.replace(/\r/g, '').split('\n').map(l => ({
+                    raw: l,
+                    html: escHtml(l),
+                    type: 'normal'
+                }));
+                setVirtualLines(rawArr);
+                return;
+            }
+
+            const lines = rawText.replace(/\r/g, '').split('\n');
+            const turns = [];
+            let currentQ = [];
+            let currentA = [];
+            let state = 'A';
+
+            for (let i = 0; i < lines.length; i++) {
+                const l = lines[i];
+                const qMatch = l.match(/^(?:👤\s*)?(?:QUESTION\s*\d*\s*[:~.-]*|User\s*:|You\s*:|Prompt\s*:|Q\d*[:.])\s*(.*)/i);
+                const aMatch = l.match(/^(?:🤖\s*)?(?:GEMINI\s*:|Assistant\s*:|Response\s*\d*\s*[:~.-]*|Answer\s*:|A\d*[:.])\s*(.*)/i);
+
+                if (qMatch) {
+                    if (currentQ.length > 0 || currentA.length > 0) {
+                        turns.push({
+                            question: currentQ.join('\n') || 'User Prompt',
+                            answer: currentA.join('\n')
+                        });
+                        currentQ = [];
+                        currentA = [];
+                    }
+                    state = 'Q';
+                    if (qMatch[1]) currentQ.push(qMatch[1]);
+                } else if (aMatch) {
+                    state = 'A';
+                    if (aMatch[1]) currentA.push(aMatch[1]);
+                } else {
+                    if (state === 'Q' && currentA.length === 0) {
+                        currentQ.push(l);
+                    } else {
+                        state = 'A';
+                        currentA.push(l);
+                    }
+                }
+            }
+
+            if (currentQ.length > 0 || currentA.length > 0) {
+                turns.push({
+                    question: currentQ.join('\n') || 'Shared Gemini Prompt',
+                    answer: currentA.join('\n')
+                });
+            }
+
+            buildFormattedChatLines(turns);
+        }
+
         // ================================================================================
-        //      🪄  3.  UNIVERSAL  DOM-CONTAINER  &  MARKDOWN  EXTRACTOR  🪄
+        //      🪄  3.  GEMINI  SHARE  LINK  EXTRACTOR  (MULTI-PROXY  ENGINE)  🪄
         // ================================================================================
         function showStatus(msg) {
             const modal = document.getElementById('status-modal');
@@ -940,19 +1048,24 @@
             document.getElementById('status-modal').classList.remove('active');
         }
 
+        // Debug Logger Function
         function logDebug(message, type = 'info') {
             const terminal = document.getElementById('debug-terminal');
             const output = document.getElementById('debug-log-output');
             terminal.style.display = 'flex';
+    
             let color = '#a5d6ff';
             if (type === 'error') color = '#ff7b72';
             if (type === 'success') color = '#7ee787';
             if (type === 'warn') color = '#ffa657';
+
             const time = new Date().toLocaleTimeString();
-            output.innerHTML += `<div style="color: ${color}; margin-bottom: 6px;">[${time}]${escHtml(message)}</div>`;
+            output.innerHTML += `<div style="color: ${color}; margin-bottom: 6px;">[${time}] ${escHtml(message)}</div>`;
             output.scrollTop = output.scrollHeight;
         }
 
+
+        // Updated Extraction Logic (DOM-Container + Markdown Fallback with Deep Diagnostic Logs)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -961,7 +1074,8 @@
             logDebug(`Starting extraction for: ${urlInput}`, 'info');
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
-            let rawPayload = '';
+            let renderedHtmlPayload = '';
+            let markdownPayload = '';
             const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
             const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
 
@@ -973,7 +1087,12 @@
                 if (rawRes.ok) {
                     const data = await rawRes.json();
                     if (data.finalUrl) logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
-                    rawPayload = data.renderedHtml || data.markdown || data.html || '';
+                    renderedHtmlPayload = data.renderedHtml || '';
+                    markdownPayload = data.markdown || '';
+                    logDebug(
+                        `Payload Sizes -> HTML: ${renderedHtmlPayload.length.toLocaleString()} chars | Markdown: ${markdownPayload.length.toLocaleString()} chars`,
+                        'info'
+                    );
                 } else {
                     const errText = await rawRes.text();
                     logDebug(`Vercel Error Details : ${errText.slice(0, 220)}`, 'error');
@@ -983,29 +1102,50 @@
             }
 
             try {
-                // Direct Stream Fallback (Markdown route ensures redirect resolution)
-                if (!rawPayload || rawPayload.trim().length <= 40) {
+                // Direct Stream Fallback if Vercel returned empty
+                if (renderedHtmlPayload.trim().length <= 40 && markdownPayload.trim().length <= 40) {
                     logDebug('Fetching directly from Headless Stream (Markdown route)...', 'warn');
                     showStatus('Streaming Chat Payload 🪄 .....');
                     const directRes = await fetch(`https://r.jina.ai/${urlInput}`, {
                         headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' }
                     });
-                    if (directRes.ok) rawPayload = await directRes.text();
-                }
-
-                if (rawPayload && rawPayload.trim().length > 40) {
-                    logDebug(`Rendered Payload Received: ${rawPayload.length.toLocaleString()} Characters.`, 'info');
-                    
-                    const turns = cleanScrapedGeminiMarkdown(rawPayload);
-                    logDebug(`Extracted ${turns.length} Conversation Turn(s).`, turns.length > 0 ? 'success' : 'warn');
-
-                    if (turns.length > 0) {
-                        buildFormattedChatLines(turns);
-                        hideStatus();
-                        logDebug('Chat successfully formatted into UI engine!', 'success');
-                        return;
+                    if (directRes.ok) {
+                        markdownPayload = await directRes.text();
                     }
                 }
+
+                // Prefer HTML DOM if available, otherwise Markdown, and cross-verify turn counts!
+                let turns = [];
+                if (renderedHtmlPayload && renderedHtmlPayload.trim().length > 100) {
+                    logDebug(`Parsing HTML DOM Payload (${renderedHtmlPayload.length.toLocaleString()} chars)...`, 'info');
+                    turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload);
+                }
+
+                if (markdownPayload && markdownPayload.trim().length > 100) {
+                    const mdTurns = cleanScrapedGeminiMarkdown(markdownPayload);
+                    if (mdTurns.length > turns.length) {
+                        logDebug(`Markdown route yielded ${mdTurns.length} turns (vs DOM ${turns.length}). Using complete ${mdTurns.length}-turn set.`, 'info');
+                        turns = mdTurns;
+                    }
+                }
+
+                logDebug(`Extracted ${turns.length} Conversation Turn(s).`, turns.length > 0 ? 'success' : 'warn');
+
+                if (turns.length > 0) {
+                    // Log Turn 1 and Last Turn preview lengths for instant verification
+                    const firstT = turns[0];
+                    const lastT = turns[turns.length - 1];
+                    logDebug(`Turn 1 Check -> Q1: ${firstT.question.length} chars | R1: ${firstT.answer.length} chars`, 'info');
+                    if (turns.length > 1) {
+                        logDebug(`Turn ${turns.length} Check -> Q${turns.length}: ${lastT.question.length} chars | R${turns.length}: ${lastT.answer.length} chars`, 'info');
+                    }
+
+                    buildFormattedChatLines(turns);
+                    hideStatus();
+                    logDebug('Chat successfully formatted into UI engine!', 'success');
+                    return;
+                }
+
                 throw new Error('No conversation turns found in the rendered share link.');
             } catch (err) {
                 logDebug(`Execution Failed: ${err.message}`, 'error');
@@ -1013,29 +1153,151 @@
                 alert('⚠️ Extraction failed. Check the System Debugger.');
             }
         }
+        
 
-        // Recursive DOM-to-Markdown Serializer for HTML Mode
+        //   Debugger Copy Function
+        function copyDebugLogs(btnElem) {
+            const logOutput = document.getElementById('debug-log-output');
+            if (!logOutput) return;
+    
+            const rawLogs = logOutput.innerText;
+    
+            navigator.clipboard.writeText(rawLogs).then(() => {
+                const originalText = btnElem.innerText;
+                btnElem.innerText = '✅   Copied  !!';
+                btnElem.style.background = '#58a6ff';
+                btnElem.style.color = '#090d13';
+        
+                setTimeout(() => {
+                    btnElem.innerText = originalText;
+                    btnElem.style.background = 'rgba(88, 166, 255, 0.2)';
+                    btnElem.style.color = '#fff';
+                }, 1500);
+            }).catch(err => {
+                alert("Clipboard  Write  Failed   :   " + err);
+            });
+        }
+
+        // ================================================================================
+        //      🪄  UNIVERSAL  DOM-CONTAINER  &  MARKDOWN  TURN  EXTRACTOR  🪄
+        //          - Zero-mixup Question vs. Response boundary detection
+        //          - Repairs unfenced HTML / Bash / DOS / Diff blocks automatically
+        // ================================================================================
+        function normalizeResponseCodeBlocks(rawAns) {
+            let text = String(rawAns || '').replace(/\r/g, '');
+
+            // 1. Clean standalone image badge lines ("JPG", "PNG", "+ 1", "+ 2") that Gemini places next to images
+            text = text.replace(/^[ \t]*(?:JPG|JPEG|PNG|WEBP|GIF|\+\s*\d+)[ \t]*$/gm, '');
+
+            // 2. If Gemini output "Markdown\n\n```diff" (nested markdown wrapper around diff block), unwrap the outer label
+            text = text.replace(/^(?:Markdown|markdown)[ \t]*\n+```([a-zA-Z0-9+#_-]*)/gm, '```$1');
+
+            // 3. If Gemini output "HTML\n<!DOCTYPE html> ... </html>" WITHOUT ```html fences, wrap it in ```html ... ```!
+            text = text.replace(
+                /(?:^|\n)(?:HTML|html)[ \t]*\n+(<!DOCTYPE html>[\s\S]*?<\/html>)(?=\n|$)/g,
+                '\n\n```html\n$1\n```\n\n'
+            );
+            // Also catch any unfenced <!DOCTYPE html>...</html> block directly
+            text = text.replace(
+                /(^|\n)(?!```)(<!DOCTYPE html>[\s\S]*?<\/html>)(?!\n```)/g,
+                '$1\n```html\n$2\n```\n'
+            );
+
+            // 4. Convert standalone language labels ("Bash", "DOS", "Plaintext") followed by unfenced commands/steps into ```lang blocks
+            const lines = text.split('\n');
+            const out = [];
+            let inFence = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+
+                if (trimmed.startsWith('```')) {
+                    inFence = !inFence;
+                    out.push(line);
+                    continue;
+                }
+
+                if (!inFence && /^(Bash|DOS|Plaintext|Batchfile|PowerShell|Shell|Sh|Cmd)$/i.test(trimmed)) {
+                    const lang = trimmed.toLowerCase();
+                    // Check if next non-empty line is already a ``` fence
+                    let j = i + 1;
+                    while (j < lines.length && lines[j].trim() === '') j++;
+
+                    if (j < lines.length && lines[j].trim().startsWith('```')) {
+                        // Replace generic ``` with ```lang
+                        lines[j] = '```' + lang;
+                        continue;
+                    }
+
+                    // Otherwise collect the contiguous unfenced code block lines
+                    const codeLines = [];
+                    let k = j;
+                    const isPlaintextSteps = lang === 'plaintext';
+
+                    while (k < lines.length) {
+                        const cLine = lines[k];
+                        const cTrim = cLine.trim();
+
+                        if (cTrim === '') {
+                            if (isPlaintextSteps && k + 1 < lines.length && /^(?:STEP\s+\d+|\d+\.)/i.test(lines[k + 1].trim())) {
+                                codeLines.push('');
+                                k++;
+                                continue;
+                            }
+                            break;
+                        }
+                        // Stop if we hit a normal conversational sentence after commands
+                        if (!isPlaintextSteps && /^[A-Z][a-z]+\s+[a-z]+\s+[a-z]+/.test(cTrim) && !/^(?:sudo|cd|git|pip|python|py|fastboot|adb|mkdir|type|echo|set|rem)\b/i.test(cTrim)) {
+                            break;
+                        }
+                        codeLines.push(cLine);
+                        k++;
+                    }
+
+                    if (codeLines.length > 0) {
+                        out.push('```' + lang);
+                        out.push(...codeLines);
+                        out.push('```');
+                        i = k - 1;
+                        continue;
+                    }
+                }
+
+                out.push(line);
+            }
+
+            return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+        }
+
         function convertGeminiDomNodeToMarkdown(rootNode, isQuestion = false) {
             if (!rootNode) return '';
+
             const clone = rootNode.cloneNode(true);
 
+            // Remove UI noise elements inside the container
             const junkSelectors = [
                 'script', 'style', 'svg', 'button', 'mat-icon',
                 '.sr-only', '.cdk-visually-hidden', '[aria-hidden="true"]',
-                'source-footnote', 'img', '[alt="Image"]'
+                'source-footnote', 'tap-to-load-image', 'img'
             ];
             clone.querySelectorAll(junkSelectors.join(',')).forEach(el => el.remove());
 
             if (isQuestion) {
                 clone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
-                    if (/^\s*You said\b/i.test(h.textContent || '')) h.remove();
+                    if (/^\s*(?:You said|Gemini said)\b/i.test(h.textContent || '')) {
+                        h.remove();
+                    }
                 });
                 const queryTextEl = clone.querySelector('.query-text, .user-query-text, [class*="query-text"]');
                 if (queryTextEl) {
                     const lines = [];
                     const pLines = queryTextEl.querySelectorAll('.query-text-line, p');
                     if (pLines.length > 0) {
-                        pLines.forEach(p => lines.push((p.textContent || '').replace(/\r/g, '')));
+                        pLines.forEach(p => {
+                            const txt = (p.textContent || '').replace(/\r/g, '');
+                            lines.push(txt);
+                        });
                         return lines.join('\n').trim();
                     }
                     return (queryTextEl.innerText || queryTextEl.textContent || '').replace(/\r/g, '').trim();
@@ -1044,58 +1306,81 @@
 
             function walk(node, listDepth = 0) {
                 if (!node) return '';
-                if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+                if (node.nodeType === Node.TEXT_NODE) {
+                    return node.nodeValue || '';
+                }
                 if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
                 const tag = node.tagName.toLowerCase();
+
+                // Skip standalone image filename badges (e.g. "JPG", "PNG", "+ 2")
                 const rawTxt = (node.textContent || '').trim();
-                
-                // Skip standalone image filename badges (e.g. "1000546029.jpg" or "JPG")
-                if ((tag === 'span' || tag === 'div' || tag === 'a' || tag === 'p') && node.children.length === 0) {
-                    if (/^(?:JPG|JPEG|PNG|WEBP|GIF|\d{6,}\.(?:jpg|jpeg|png|webp)(\s+\+\d+)?)$/i.test(rawTxt)) {
+                if ((tag === 'span' || tag === 'div') && node.children.length === 0) {
+                    if (/^(?:JPG|JPEG|PNG|WEBP|GIF|\+\s*\d+|\d{6,}\.(?:jpg|jpeg|png|webp)(\s+\+\d+)?)$/i.test(rawTxt)) {
                         return '';
                     }
                 }
 
+                // 1. Code Blocks (<pre> or <code-block>)
                 if (tag === 'pre' || tag === 'code-block' || node.classList.contains('code-block')) {
+                    // Avoid double-processing <pre> if its parent <code-block> already handled it
+                    if (tag === 'pre' && node.parentElement && (node.parentElement.tagName.toLowerCase() === 'code-block' || node.parentElement.classList.contains('code-block'))) {
+                        return '';
+                    }
                     let lang = 'text';
                     const langEl = node.querySelector('.code-block-decoration span, [class*="language"], .lang-label');
                     if (langEl && langEl.textContent) {
                         const candidate = langEl.textContent.trim().toLowerCase();
-                        if (/^[a-z0-9+#_-]{1,18}$/.test(candidate) && candidate !== 'copy') lang = candidate;
+                        if (/^[a-z0-9+#_-]{1,18}$/.test(candidate) && candidate !== 'copy') {
+                            lang = candidate;
+                        }
                     }
-                    const codeEl = node.querySelector('code') || node;
+                    const codeEl = node.querySelector('code') || node.querySelector('pre') || node;
                     if (codeEl.className) {
                         const m = codeEl.className.match(/language-([a-zA-Z0-9+#_-]+)/);
                         if (m) lang = m[1].toLowerCase();
                     }
                     let codeText = (codeEl.textContent || '').replace(/\r/g, '').replace(/^\n+|\n+$/g, '');
-                    codeText = codeText.replace(/^(\s*)```/gm, '$1` ` `'); // Escape nested backticks
-                    return `\n\n\`\`\`${lang}\n${codeText}\n\`\`\`\n\n`;
-                }
 
-                if (tag === 'code') {
-                    const cTxt = (node.textContent || '').trim();
-                    if (!cTxt) return '';
-                    if (cTxt.includes('\n')) return `\n\n\`\`\`text\n${cTxt}\n\`\`\`\n\n`;
+                    // If this is a Markdown wrapper block that starts with ```diff and ends with ```, unwrap the outer fence!
+                    const innerFenceMatch = codeText.match(/^```([a-zA-Z0-9+#_-]+)\n([\s\S]*?)\n```$/);
+                    if (innerFenceMatch) {
+                        lang = innerFenceMatch[1].toLowerCase();
+                        codeText = innerFenceMatch[2];
+                    }
+
+                    // Escape any remaining internal triple backticks so they never break the outer block
+                    codeText = codeText.replace(/^(\s*)```/gm, '$1` ` `'); return `\n\n\`\`\`${lang}\n${codeText}\n\`\`\`\n\n`; }  // 2. Inline Code (<code> not inside <pre>) if (tag === 'code') { const cTxt = (node.textContent \vert{}\vert{} '').trim(); if (!cTxt) return ''; if (cTxt.includes('\n')) { return `\n\n\`\`\`text\n${cTxt}\n\`\`\`\n\n`;
+                    }
                     return '`' + cTxt + '`';
                 }
 
+                // 3. Bold (<strong> / <b>)
                 if (tag === 'strong' || tag === 'b') {
                     const inner = serializeChildren(node, listDepth).trim();
                     return inner ? `**${inner}**` : '';
                 }
+
+                // 4. Italic (<em> / <i>)
                 if (tag === 'em' || tag === 'i') {
                     const inner = serializeChildren(node, listDepth).trim();
                     return inner ? `*${inner}*` : '';
                 }
+
+                // 5. Headings (<h1> - <h6>)
                 if (/^h[1-6]$/.test(tag)) {
                     const level = parseInt(tag[1], 10);
                     const inner = serializeChildren(node, listDepth).replace(/\s+/g, ' ').trim();
                     if (!inner || /^You said\b/i.test(inner) || /^Gemini said\b/i.test(inner)) return '';
                     return `\n\n${'#'.repeat(level)} ${inner}\n\n`;
                 }
-                if (tag === 'br') return '\n';
+
+                // 6. Line Break (<br>)
+                if (tag === 'br') {
+                    return '\n';
+                }
+
+                // 7. Lists (<ul> / <ol>)
                 if (tag === 'ul' || tag === 'ol') {
                     const isOrdered = tag === 'ol';
                     const startNum = parseInt(node.getAttribute('start') || '1', 10);
@@ -1110,15 +1395,20 @@
                     }
                     return listOut + '\n';
                 }
+
+                // 8. Blockquote (<blockquote>)
                 if (tag === 'blockquote') {
                     const inner = serializeChildren(node, listDepth).trim();
                     if (!inner) return '';
                     return '\n' + inner.split('\n').map(l => `> ${l}`).join('\n') + '\n';
                 }
+
+                // 9. Paragraphs & Block Containers
                 if (tag === 'p') {
                     const inner = serializeChildren(node, listDepth).trim();
                     return inner ? `\n${inner}\n` : '\n';
                 }
+
                 return serializeChildren(node, listDepth);
             }
 
@@ -1126,6 +1416,7 @@
                 const indent = depth > 0 ? '    '.repeat(depth) : '';
                 let mainParts = '';
                 let nestedLists = '';
+
                 for (const child of liNode.childNodes) {
                     if (child.nodeType === Node.ELEMENT_NODE) {
                         const cTag = child.tagName.toLowerCase();
@@ -1136,36 +1427,183 @@
                     }
                     mainParts += walk(child, depth);
                 }
+
                 const cleanMain = mainParts.replace(/^\n+|\n+$/g, '').replace(/\n+/g, ' ');
                 let out = `${indent}${prefix}${cleanMain}\n`;
-                if (nestedLists.trim()) out += nestedLists.replace(/^\n+/, '');
+                if (nestedLists.trim()) {
+                    out += nestedLists.replace(/^\n+/, '');
+                }
                 return out;
             }
 
             function serializeChildren(parent, listDepth) {
                 let res = '';
-                for (const child of parent.childNodes) res += walk(child, listDepth);
+                for (const child of parent.childNodes) {
+                    res += walk(child, listDepth);
+                }
                 return res;
             }
 
             let md = walk(clone, 0);
-            if (!isQuestion) md = md.replace(/\n{3,}/g, '\n\n');
+            if (!isQuestion) {
+                md = normalizeResponseCodeBlocks(md);
+            }
             return md.trim();
         }
 
-        // Hybrid HTML-DOM & Markdown Parser
+        // Helper: Splits a single Turn Chunk into { question, answer } with 100% accuracy
+        function splitTurnChunkIntoQA(chunk) {
+            // 1. Check if explicit "Gemini said" / "###### Gemini said" marker exists inside this turn
+            const geminiMarkerRegex = /^(?:#{1,6}\s*)?Gemini said\s*$/im;
+            const gMatch = geminiMarkerRegex.exec(chunk);
+
+            if (gMatch) {
+                const rawQPart = chunk.substring(0, gMatch.index).trim();
+                const rawAPart = chunk.substring(gMatch.index + gMatch[0].length).trim();
+
+                const qLines = rawQPart.split('\n');
+                const headerPreview = (qLines.shift() || '').trim();
+                while (qLines.length > 0 && qLines[0].trim() === '') qLines.shift();
+
+                const fullQ = qLines.join('\n').trim() || headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
+                return {
+                    question: fullQ,
+                    answer: normalizeResponseCodeBlocks(rawAPart)
+                };
+            }
+
+            // 2. Fallback when Jina strips "Gemini said":
+            //    Line 0 is the collapsed preview from `##### You said <preview...>`
+            //    Following lines are the full multi-line Question, followed by the Response.
+            const lines = chunk.split('\n');
+            const headerPreview = (lines.shift() || '').trim();
+
+            while (lines.length > 0 && lines[0].trim() === '') lines.shift();
+            while (lines.length > 0 && (lines[lines.length - 1].trim() === 'Sign in' || lines[lines.length - 1].trim() === '')) {
+                lines.pop();
+            }
+
+            // Strip trailing ellipsis from the preview
+            const previewCore = headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
+            const normCore = previewCore.replace(/\s+/g, ' ');
+
+            // Remove standalone JPG / PNG badges from lines
+            const cleanedLines = lines.filter(l => !/^[ \t]*(?:JPG|JPEG|PNG|WEBP|GIF|\+\s*\d+)[ \t]*$/i.test(l));
+
+            // Strategy 2A: If the preview wasn't truncated with '...', match until accumulated text equals normCore
+            const wasTruncated = /(?:\.\.\.|…)\s*$/.test(headerPreview) || normCore.length >= 75;
+
+            if (!wasTruncated && normCore.length > 0) {
+                let acc = '';
+                for (let i = 0; i < cleanedLines.length; i++) {
+                    const t = cleanedLines[i].trim();
+                    if (t !== '') acc += (acc ? ' ' : '') + t;
+                    const normAcc = acc.replace(/\s+/g, ' ');
+                    if (normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
+                        const qText = cleanedLines.slice(0, i + 1).join('\n').trim();
+                        const aText = cleanedLines.slice(i + 1).join('\n').trim();
+                        return {
+                            question: qText,
+                            answer: normalizeResponseCodeBlocks(aText)
+                        };
+                    }
+                }
+            }
+
+            // Strategy 2B: When preview WAS truncated (long multi-paragraph question like Turn 1, Turn 58, Turn 61, Turn 62):
+            // Find where the full Question ends and Gemini's Response begins!
+            let qStartIdx = 0;
+            let acc = '';
+            let matchedPreviewIdx = -1;
+
+            for (let i = 0; i < cleanedLines.length; i++) {
+                const t = cleanedLines[i].trim();
+                if (t !== '') acc += (acc ? ' ' : '') + t;
+                const normAcc = acc.replace(/\s+/g, ' ');
+                if (normCore.length > 0 && normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
+                    matchedPreviewIdx = i;
+                    break;
+                }
+            }
+
+            if (matchedPreviewIdx !== -1) {
+                let qEnd = matchedPreviewIdx;
+
+                // Continue scanning lines after the preview match: keep lines in Question until we hit Gemini's response start!
+                for (let k = matchedPreviewIdx + 1; k < cleanedLines.length; k++) {
+                    const line = cleanedLines[k];
+                    const t = line.trim();
+                    if (t === '') continue;
+
+                    // Definite Response Start Indicators (Markdown headings, bold bullet titles, or formal assistant opening)
+                    const isMarkdownHeading = /^#{1,6}\s+/.test(t);
+                    const isCodeFence = /^```/.test(t);
+                    const isHtmlDoc = /^<!DOCTYPE html>/i.test(t);
+
+                    // Check if a line is clearly a user prompt continuation (e.g., starts with ••, And, How, Should, Even, What, I, C:\, DeviceClass, Or, Strictly, Think, Means)
+                    const isUserStyleLine =
+                        /^(?:•+|\?\?+|And\b|Or\b|But\b|How\b|Should\b|What\b|Will\b|Where\b|Even\b|Also\b|Now\b|Means\b|Give\b|If\b|Keep\b|Think\b|Strictly\b|I\b|I'm\b|I'll\b|Pc\b|Using\b|Doing\b|C:\\|Main\b|DeviceClass\b|Preloader\b|Port\b|For\b|Power\b|py\s+-3|cd\s+C:|mtkclient\b|platform-tools|UsbDk_|zadig-|Oem\s+and|'log\.txt'|The system cannot find|\.\s*DeviceClass|\.$)/i.test(t);
+
+                    if (isMarkdownHeading || isCodeFence || isHtmlDoc) {
+                        break;
+                    }
+
+                    if (isUserStyleLine) {
+                        qEnd = k;
+                        continue;
+                    }
+
+                    // If we already passed a user question mark or "Think and research..." closing line, the next formal sentence is Gemini's response!
+                    const prevQuestionLine = cleanedLines[qEnd] ? cleanedLines[qEnd].trim() : '';
+                    if (
+                        /\?\s*$/.test(prevQuestionLine) ||
+                        /ask me if you need anything else/i.test(prevQuestionLine) ||
+                        /Don't leave anything/i.test(prevQuestionLine) ||
+                        /remove the sim card/i.test(prevQuestionLine) ||
+                        /explain everything/i.test(prevQuestionLine) ||
+                        /discharging fast\s*,*\s*why\s*\?/i.test(prevQuestionLine)
+                    ) {
+                        break;
+                    }
+
+                    // Otherwise, if this line looks like a formal long declarative sentence (> 75 chars, no double commas ',,' or '!!'), it's the start of Gemini's response
+                    if (t.length > 70 && !/,,|!!|\?\?/.test(t) && /^[A-Z]/.test(t)) {
+                        break;
+                    }
+
+                    qEnd = k;
+                }
+
+                const questionText = cleanedLines.slice(qStartIdx, qEnd + 1).join('\n').trim();
+                const answerText = cleanedLines.slice(qEnd + 1).join('\n').trim();
+                return {
+                    question: questionText || previewCore,
+                    answer: normalizeResponseCodeBlocks(answerText)
+                };
+            }
+
+            return {
+                question: previewCore || 'User Prompt',
+                answer: normalizeResponseCodeBlocks(cleanedLines.join('\n'))
+            };
+        }
+
         function cleanScrapedGeminiMarkdown(payload) {
             let text = String(payload || '').replace(/\r/g, '');
 
-            // ROUTE A: HTML DOM PARSER (100% Exact Question & Response Boundaries)
-            if (text.includes('<') && (text.includes('<user-query') || text.includes('<model-response') || text.includes('<body'))) {
+            // =========================================================================
+            //   ROUTE A: HTML DOM CONTAINER EXTRACTION (100% EXACT Q & A BOUNDARIES)
+            // =========================================================================
+            if (text.includes('<') && (text.includes('<user-query') || text.includes('<model-response') || text.includes('<html') || text.includes('<body') || text.includes('<h5') || text.includes('<h6'))) {
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(text, 'text/html');
 
-                    // Filter to strictly top-level containers to prevent double-counting
-                    const domNodes = Array.from(doc.querySelectorAll('user-query, model-response, [data-message-author-role]'))
-                        .filter(node => !node.parentElement.closest('user-query, model-response, [data-message-author-role]'));
+                    // Strategy 1: Native Gemini Custom Elements (<user-query> and <model-response>)
+                    const domNodes = doc.querySelectorAll('user-query, model-response, [data-message-author-role]');
+                    if (typeof logDebug === 'function') {
+                        logDebug(`DOM Check -> Custom Elements (<user-query>/<model-response>): ${domNodes.length}`, 'info');
+                    }
 
                     if (domNodes.length >= 2) {
                         const domTurns = [];
@@ -1177,7 +1615,9 @@
                             const isUser = tag === 'user-query' || role === 'user';
 
                             if (isUser) {
-                                if (pendingQ !== null) domTurns.push({ question: pendingQ || '[Uploaded Media]', answer: '' });
+                                if (pendingQ !== null) {
+                                    domTurns.push({ question: pendingQ || '[Uploaded Media]', answer: '' });
+                                }
                                 pendingQ = convertGeminiDomNodeToMarkdown(node, true);
                             } else {
                                 const ansMd = convertGeminiDomNodeToMarkdown(node, false);
@@ -1191,21 +1631,59 @@
                                 }
                             }
                         });
-                        if (pendingQ !== null) domTurns.push({ question: pendingQ, answer: '' });
+
+                        if (pendingQ !== null) {
+                            domTurns.push({ question: pendingQ, answer: '' });
+                        }
 
                         const validDomTurns = domTurns.filter(t => t.question || t.answer);
                         if (validDomTurns.length > 0) {
-                            if (typeof logDebug === 'function') logDebug(`DOM Container Parser extracted ${validDomTurns.length} exact turn(s).`, 'success');
+                            if (typeof logDebug === 'function') {
+                                logDebug(`DOM Container Parser extracted ${validDomTurns.length} exact turn(s).`, 'success');
+                            }
                             return validDomTurns;
                         }
                     }
+
+                    // Strategy 2: Heading-Anchored DOM Walk (<h5>You said</h5> and <h6>Gemini said</h6>)
+                    const allHeadings = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6'));
+                    const youSaidHeadings = allHeadings.filter(h => /^\s*You said\b/i.test(h.textContent || ''));
+                    const geminiSaidHeadings = allHeadings.filter(h => /^\s*Gemini said\b/i.test(h.textContent || ''));
+
+                    if (typeof logDebug === 'function') {
+                        logDebug(`DOM Check -> "You said" headings: ${youSaidHeadings.length} | "Gemini said" headings: ${geminiSaidHeadings.length}`, 'info');
+                    }
+
+                    if (youSaidHeadings.length > 0) {
+                        // Inject explicit text markers into a cloned body so DOM -> Markdown conversion preserves 100% exact Q/A boundaries!
+                        const bodyClone = doc.body.cloneNode(true);
+                        bodyClone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
+                            const txt = (h.textContent || '').trim();
+                            if (/^You said\b/i.test(txt)) {
+                                const preview = txt.replace(/^You said\s*/i, '').trim();
+                                h.textContent = `\n##### You said ${preview}\n`;
+                            } else if (/^Gemini said\b/i.test(txt)) {
+                                h.textContent = `\n###### Gemini said\n`;
+                            }
+                        });
+                        text = convertGeminiDomNodeToMarkdown(bodyClone, false);
+                    }
                 } catch (domErr) {
-                    if (typeof logDebug === 'function') logDebug(`DOM Parser notice: ${domErr.message}. Using Markdown parser...`, 'warn');
+                    if (typeof logDebug === 'function') {
+                        logDebug(`DOM Parser notice: ${domErr.message}. Using Markdown parser...`, 'warn');
+                    }
                 }
             }
 
-            // ROUTE B: MARKDOWN FALLBACK PARSER
-            const footerMarkers = ['\nGemini may display inaccurate info', '\n[About Gemini](', '\nCopy public link'];
+            // =========================================================================
+            //   ROUTE B: MARKDOWN PARSER WITH EXPLICIT "Gemini said" & SMART UNROLL
+            // =========================================================================
+            const footerMarkers = [
+                '\nGemini may display inaccurate info',
+                '\nGemini is AI and can make mistakes',
+                '\n[About Gemini](',
+                '\nCopy public link'
+            ];
             for (const marker of footerMarkers) {
                 const idx = text.lastIndexOf(marker);
                 if (idx !== -1) text = text.substring(0, idx);
@@ -1215,100 +1693,33 @@
                 return '\n```' + lang.toLowerCase() + '\n';
             });
 
-            const turnRegex = /^(?:#####\s*You said|You said)\s*/m;
+            const turnRegex = /^(?:#{1,6}\s*You said|You said)\s*/m;
             const firstMatch = turnRegex.exec(text);
             if (firstMatch) {
                 text = text.substring(firstMatch.index);
             } else {
                 const cleanFallback = text.split('\n').filter(l =>
-                    !l.startsWith('Title:') && !l.startsWith('URL Source:') && !l.startsWith('Markdown Content:') &&
-                    !l.includes('[accounts.google.com/ServiceLogin](https://accounts.google.com/ServiceLogin)') && !l.includes('gemini_sparkle')
+                    !l.startsWith('Title:') &&
+                    !l.startsWith('URL Source:') &&
+                    !l.startsWith('Markdown Content:') &&
+                    !l.includes('[accounts.google.com/ServiceLogin](https://accounts.google.com/ServiceLogin)') &&
+                    !l.includes('gemini_sparkle')
                 ).join('\n').trim();
-                return cleanFallback ? [{ question: 'Shared Gemini Prompt', answer: cleanFallback }] : [];
+                return cleanFallback ? [{ question: 'Shared Gemini Prompt', answer: normalizeResponseCodeBlocks(cleanFallback) }] : [];
             }
 
-            const rawChunks = text.split(/^(?:#####\s*You said|You said)\s*/m).filter(c => c.trim().length > 0);
+            const rawChunks = text.split(/^(?:#{1,6}\s*You said|You said)\s*/m).filter(c => c.trim().length > 0);
             const turns = [];
 
-            const geminiResponseStarters = /^(?:The short answer|Here is |Here's |Here are |Great[!., ]|Awesome[!., ]|Perfect[!., ]|Congratulations|Yes[!., ]|No[!., ]|To fix |To do this|Looking at |Based on |In your |Since you |Let's |I can see|I have |This is happening|That error|Why |What |Step 1|### |## |1\.\s+\*\*)/i;
-
             for (const chunk of rawChunks) {
-                const lines = chunk.split('\n');
-                const headerPreview = (lines.shift() || '').trim();
-
-                while (lines.length > 0 && lines[0].trim() === '') lines.shift();
-                while (lines.length > 0 && (lines[lines.length - 1].trim() === 'Sign in' || lines[lines.length - 1].trim() === '')) lines.pop();
-
-                const isTruncated = /(?:\.\.\.|…)$/.test(headerPreview);
-                const previewCore = headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
-                const normCore = previewCore.replace(/\s+/g, ' ');
-
-                let qEndLineIdx = -1;
-                let accumulated = '';
-
-                if (normCore.length > 0) {
-                    const prefixLen = Math.min(20, normCore.length);
-                    const targetPrefix = normCore.slice(0, prefixLen);
-                    for (let i = 0; i < lines.length; i++) {
-                        if (lines[i].trim() !== '') accumulated += (accumulated ? ' ' : '') + lines[i].trim();
-                        const normAcc = accumulated.replace(/\s+/g, ' ');
-                        if (normAcc.length >= normCore.length && normAcc.startsWith(targetPrefix)) {
-                            qEndLineIdx = i;
-                            while (qEndLineIdx + 1 < lines.length && lines[qEndLineIdx + 1].trim() !== '') qEndLineIdx++;
-                            if (isTruncated) {
-                                for (let k = qEndLineIdx + 1; k < lines.length; k++) {
-                                    const candidate = lines[k].trim();
-                                    if (candidate === '' || candidate === 'JPG' || candidate === 'PNG') continue;
-                                    const prevWasBlank = lines[k - 1].trim() === '';
-                                    if (prevWasBlank && (geminiResponseStarters.test(candidate) || /^#{1,4}\s+/.test(candidate))) {
-                                        break;
-                                    }
-                                    qEndLineIdx = k;
-                                }
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                let questionText = '';
-                let answerLines = [];
-                if (qEndLineIdx !== -1) {
-                    questionText = lines.slice(0, qEndLineIdx + 1).join('\n').trim();
-                    answerLines = lines.slice(qEndLineIdx + 1);
-                    while (answerLines.length > 0 && answerLines[0].trim() === '') answerLines.shift();
-                } else {
-                    questionText = previewCore || 'User Prompt';
-                    answerLines = lines;
-                }
-
-                const cleanQuestion = questionText.replace(/\n{3,}/g, '\n\n').trim();
-                let cleanAnswer = answerLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-                
-                // Auto-fence raw HTML blocks
-                const aLines = cleanAnswer.split('\n');
-                const pAns = [];
-                let inFence = false, autoHtml = false;
-                for (let i = 0; i < aLines.length; i++) {
-                    const t = aLines[i].trim();
-                    if (t.startsWith('```')) {
-                        if (autoHtml) { pAns.push('```'); autoHtml = false; }
-                        inFence = !inFence; pAns.push(aLines[i]); continue;
-                    }
-                    if (!inFence && !autoHtml && /^(?:<!DOCTYPE\s+html|<html\b|<div\s+class="(?:phase|error-box|fix-box)\b)/i.test(t)) {
-                        autoHtml = true; pAns.push('```html');
-                    }
-                    pAns.push(aLines[i]);
-                    if (autoHtml && /^<\/html>/i.test(t)) { pAns.push('```'); autoHtml = false; }
-                }
-                if (autoHtml) pAns.push('```');
-
-                turns.push({ question: cleanQuestion, answer: pAns.join('\n').trim() });
+                const qa = splitTurnChunkIntoQA(chunk);
+                turns.push(qa);
             }
+
             return turns;
         }
-        
-        
+
+
         // ================================================================================
         //      🪄  4.  NON-DESTRUCTIVE  RENDER  ENGINE  +  SELECTION  HANDLE  LOCK  🪄
         // ================================================================================
@@ -1925,7 +2336,6 @@
             URL.revokeObjectURL(url);
         }
 
-
         // Builds a 100% Self-Contained Visual + AI-Readable Standalone HTML File
         function buildStandaloneHtmlDocument(linesSlice, startLineNumber = 1, titleName = 'gemini_chat.html') {
             const endLineNumber = startLineNumber + linesSlice.length - 1;
@@ -1951,26 +2361,66 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Montserrat', sans-serif; padding: 28px 20px 60px 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
-        .export-top-bar { width: 100%; max-width: 1220px; background: #12171f; border: 1px solid rgba(255,255,255,0.09); border-radius: 12px; padding: 14px 22px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); user-select: none; }
-        .export-badge { color: #c9a255; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; }
+        body {
+            background-color: #0d1117; color: #c9d1d9;
+            font-family: 'Montserrat', sans-serif; padding: 28px 20px 60px 20px;
+            display: flex; flex-direction: column; align-items: center; min-height: 100vh;
+        }
+        .export-top-bar {
+            width: 100%; max-width: 1220px; background: #12171f;
+            border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+            padding: 14px 22px; margin-bottom: 18px;
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45); user-select: none;
+        }
+        .export-badge {
+            color: #c9a255; font-size: 13px; font-weight: 700; letter-spacing: 1.2px;
+        }
         .export-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .export-btn { background: rgba(88, 166, 255, 0.14); color: #58a6ff; border: 1px solid #58a6ff; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-size: 11.5px; font-weight: 600; }
+        .export-btn {
+            background: rgba(88, 166, 255, 0.14); color: #58a6ff; border: 1px solid #58a6ff;
+            padding: 7px 14px; border-radius: 6px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 11.5px; font-weight: 600;
+        }
         .export-btn:hover { background: #58a6ff; color: #090d13; }
-        .export-viewport { width: 100%; max-width: 1220px; background: #090d13; border: 1px solid rgba(88, 166, 255, 0.22); border-radius: 12px; overflow-x: auto; box-shadow: 0 20px 45px rgba(0,0,0,0.55); font-size: 14px; line-height: 24px; }
-        .v-row { display: flex; align-items: center; min-width: 100%; width: max-content; min-height: 24px; font-family: 'JetBrains Mono', monospace; white-space: pre; }
+        .export-viewport {
+            width: 100%; max-width: 1220px; background: #090d13;
+            border: 1px solid rgba(88, 166, 255, 0.22); border-radius: 12px;
+            overflow-x: auto; box-shadow: 0 20px 45px rgba(0,0,0,0.55);
+            font-size: 14px; line-height: 24px;
+        }
+        .v-row {
+            display: flex; align-items: center; min-width: 100%; width: max-content;
+            min-height: 24px; font-family: 'JetBrains Mono', monospace; white-space: pre;
+        }
         body.wrap-mode .v-row { width: 100%; white-space: pre-wrap; word-break: break-word; }
         .v-row:hover { background: rgba(88, 166, 255, 0.04); }
-        .v-gutter { width: 68px; min-width: 68px; min-height: 24px; align-self: stretch; display: inline-flex; align-items: center; justify-content: flex-end; padding-right: 14px; background: #06090f; color: #6e7681; border-right: 1px solid rgba(255,255,255,0.07); user-select: none; -webkit-user-select: none; font-size: 0.9em; position: sticky; left: 0; z-index: 3; }
+        .v-gutter {
+            width: 68px; min-width: 68px; min-height: 24px; align-self: stretch;
+            display: inline-flex; align-items: center; justify-content: flex-end;
+            padding-right: 14px; background: #06090f; color: #6e7681;
+            border-right: 1px solid rgba(255,255,255,0.07);
+            user-select: none; -webkit-user-select: none; font-size: 0.9em;
+            position: sticky; left: 0; z-index: 3;
+        }
         .v-gutter::before { content: attr(data-ln); }
-        .v-content { flex: 1; min-height: 24px; display: inline-flex; align-items: center; padding: 0 20px; color: #c9d1d9; position: relative; }
-        .v-row.type-question-header { background: linear-gradient(90deg, rgba(227, 179, 65, 0.18) 0%, rgba(227, 179, 65, 0.02) 85%); border-left: 3px solid #e3b341; }
+        .v-content {
+            flex: 1; min-height: 24px; display: inline-flex; align-items: center;
+            padding: 0 20px; color: #c9d1d9; position: relative;
+        }
+        .v-row.type-question-header {
+            background: linear-gradient(90deg, rgba(227, 179, 65, 0.18) 0%, rgba(227, 179, 65, 0.02) 85%);
+            border-left: 3px solid #e3b341;
+        }
         .v-row.type-question-header .v-gutter { color: #e3b341; border-right-color: rgba(227, 179, 65, 0.45); font-weight: 700; }
         .v-row.type-question-header .v-content { color: #ffd866; font-weight: 700; letter-spacing: 0.8px; }
         .v-row.type-question { background: rgba(201, 162, 85, 0.05); }
         .v-row.type-question .v-gutter { color: #d29922; border-right-color: rgba(227, 179, 65, 0.25); }
         .v-row.type-question .v-content { color: #fff8e7; font-weight: 500; }
-        .v-row.type-response-header { background: linear-gradient(90deg, rgba(46, 160, 67, 0.18) 0%, rgba(88, 166, 255, 0.02) 85%); border-left: 3px solid #3fb950; }
+        .v-row.type-response-header {
+            background: linear-gradient(90deg, rgba(46, 160, 67, 0.18) 0%, rgba(88, 166, 255, 0.02) 85%);
+            border-left: 3px solid #3fb950;
+        }
         .v-row.type-response-header .v-gutter { color: #7ee787; border-right-color: rgba(63, 185, 80, 0.45); font-weight: 700; }
         .v-row.type-response-header .v-content { color: #7ee787; font-weight: 700; letter-spacing: 0.8px; }
         .v-row.type-heading { background: rgba(88, 166, 255, 0.05); }
@@ -1978,27 +2428,37 @@
         .heading-bar { color: #58a6ff; margin-right: 10px; font-weight: 700; }
         .v-row.type-normal .v-content, .v-row.type-bullet .v-content { color: #e6edf3; }
         .v-row.type-step-start .v-content, .v-row.type-step-body .v-content { padding-left: 42px; color: #e6edf3; }
-        .step-spine { position: absolute; left: 18px; top: 0; bottom: 0; width: 2px; background: linear-gradient(180deg, #bc8cff, #58a6ff); box-shadow: 0 0 8px rgba(188, 140, 255, 0.45); }
-        .step-dot { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; border-radius: 50%; background: #0d1117; border: 2.5px solid #bc8cff; box-shadow: 0 0 8px #bc8cff; z-index: 2; }
+        .step-spine {
+            position: absolute; left: 18px; top: 0; bottom: 0; width: 2px;
+            background: linear-gradient(180deg, #bc8cff, #58a6ff);
+            box-shadow: 0 0 8px rgba(188, 140, 255, 0.45);
+        }
+        .step-dot {
+            position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #0d1117; border: 2.5px solid #bc8cff; box-shadow: 0 0 8px #bc8cff; z-index: 2;
+        }
         .v-row.type-code-header { background: rgba(88, 166, 255, 0.14); border-top: 1px solid rgba(88, 166, 255, 0.35); }
         .v-row.type-code-line { background: rgba(1, 4, 9, 0.88); }
         .v-row.type-code-line .v-gutter { background: #04060a; color: #58a6ff; border-right: 2px solid #58a6ff; }
         .v-row.type-code-line .v-content { color: #a5d6ff; }
         .v-row.type-code-footer { background: rgba(88, 166, 255, 0.08); border-bottom: 1px solid rgba(88, 166, 255, 0.35); }
-        .inline-copy-btn { background: rgba(88, 166, 255, 0.2); color: #fff; border: 1px solid #58a6ff; border-radius: 5px; padding: 2px 10px; margin-left: 14px; cursor: pointer; font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600; }
+        .inline-copy-btn {
+            background: rgba(88, 166, 255, 0.2); color: #fff; border: 1px solid #58a6ff;
+            border-radius: 5px; padding: 2px 10px; margin-left: 14px; cursor: pointer;
+            font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600;
+        }
         .inline-copy-btn:hover { background: #58a6ff; color: #090d13; }
         .tok-bold { color: #ffd866; font-weight: 700; }
         .tok-italic { color: #a5d6ff; font-style: italic; }
-        .tok-code { background: rgba(255, 123, 114, 0.14); color: #ff7b72; padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.28); font-size: 0.94em; }
+        .tok-code {
+            background: rgba(255, 123, 114, 0.14); color: #ff7b72;
+            padding: 1px 6px; border-radius: 4px; border: 1px solid rgba(255, 123, 114, 0.28); font-size: 0.94em;
+        }
         .tok-bullet { color: #58a6ff; font-weight: 700; margin-right: 8px; }
         .tok-sub-bullet { color: #bc8cff; font-weight: 700; margin-right: 8px; }
         .tok-step-num { color: #d2a8ff; font-weight: 700; margin-right: 6px; }
         .tok-quote { color: #a5d6ff; font-style: italic; border-left: 3px solid #58a6ff; padding-left: 12px; }
-        .tok-diff-add { color: #7ee787; font-weight: 600; }
-        .tok-diff-del { color: #ff7b72; font-weight: 600; }
-        .tok-diff-info { color: #ffa657; font-weight: 600; }
-        .tok-diff-comment { color: #8b949e; font-style: italic; }
-        .tok-diff-header { color: #d2a8ff; font-weight: 700; }
     </style>
 </head>
 <body>
