@@ -1093,8 +1093,19 @@
             const proxyUrl = 'https://' + myVercelDomain + '/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
             function isValid(pt) {
-                return pt && pt.length > 150 && !pt.includes('/intl/en/about/products') &&
-                       (pt.includes('You said') || pt.includes('user-query') || pt.includes('query-text') || pt.includes('model-response'));
+                if (!pt || pt.length < 120) return false;
+                // Reject only if it's an unrendered Google login/landing shell with zero chat content
+                const hasChatMarkers =
+                    pt.includes('You said') ||
+                    pt.includes('Gemini said') ||
+                    pt.includes('user-query') ||
+                    pt.includes('model-response') ||
+                    pt.includes('query-text') ||
+                    pt.includes('message-content') ||
+                    pt.includes('conversation-container') ||
+                    pt.includes('Published ') ||
+                    pt.includes('Created with ');
+                return hasChatMarkers;
             }
 
             try {
@@ -1108,7 +1119,6 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    // CRITICAL FIX: Always prefer renderedHtml FIRST so <user-query> and <model-response> tags are intact!
                     if (isValid(data.renderedHtml)) {
                         rawPayload = data.renderedHtml;
                         LAST_RAW_MODE = 'html';
@@ -1123,42 +1133,44 @@
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
                 }
             } catch (vercelErr) {
-                logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct stream fallback...', 'warn');
+                logDebug('Vercel proxy notice (' + vercelErr.message + '). Switching to direct browser stream...', 'warn');
             }
 
             try {
-                // Direct Fallback 1: Try Direct HTML mode from Jina first!
+                // Direct Fallback 1: Stream HTML DOM directly from Jina (NO X-No-Cache & NO strict selector hang!)
+                // If Vercel timed out at 10s on a huge chat, Jina's warm cache finishes right here!
                 if (!isValid(rawPayload)) {
-                    logDebug('Retrying direct HTML DOM stream from Jina...', 'warn');
+                    logDebug('Streaming HTML DOM directly from Jina (Warm Cache Enabled)...', 'warn');
                     showStatus('Streaming HTML DOM Payload 🪄 .....');
                     const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                         headers: { 
                             'Accept': 'text/plain', 
-                            'X-Return-Format': 'html', 
-                            'X-No-Cache': 'true',
-                            'X-Wait-For-Selector': 'user-query, model-response, .query-text' 
+                            'X-Return-Format': 'html'
                         }
                     });
                     if (directHtmlRes.ok) {
                         const htmlText = await directHtmlRes.text();
-                        if (isValid(htmlText)) {
-                            rawPayload = htmlText;
+                        const cleanedHtml = htmlText
+                            .replace(/<head[\s\S]*?<\/head>/gi, '')
+                            .replace(/<script[\s\S]*?<\/script>/gi, '')
+                            .replace(/<style[\s\S]*?<\/style>/gi, '')
+                            .replace(/<svg[\s\S]*?<\/svg>/gi, '');
+                        if (isValid(cleanedHtml)) {
+                            rawPayload = cleanedHtml;
                             LAST_RAW_MODE = 'html';
-                            logDebug('Direct HTML DOM stream succeeded!', 'success');
+                            logDebug('Direct HTML DOM stream succeeded! (' + cleanedHtml.length.toLocaleString() + ' chars)', 'success');
                         }
                     }
                 }
 
-                // Direct Fallback 2: Try Direct Markdown mode if HTML timed out
+                // Direct Fallback 2: Stream Markdown directly from Jina (NO strict selector hang!)
                 if (!isValid(rawPayload)) {
-                    logDebug('Retrying direct Markdown stream from Jina...', 'warn');
+                    logDebug('Streaming Markdown directly from Jina...', 'warn');
                     showStatus('Streaming Markdown Payload 🪄 .....');
                     const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                         headers: { 
                             'Accept': 'text/plain', 
-                            'X-Return-Format': 'markdown', 
-                            'X-No-Cache': 'true',
-                            'X-Wait-For-Selector': 'user-query' 
+                            'X-Return-Format': 'markdown'
                         }
                     });
                     if (directMdRes.ok) {
@@ -1166,6 +1178,7 @@
                         if (isValid(fallbackText)) {
                             rawPayload = fallbackText;
                             LAST_RAW_MODE = 'md';
+                            logDebug('Direct Markdown stream succeeded! (' + fallbackText.length.toLocaleString() + ' chars)', 'success');
                         }
                     }
                 }
@@ -1513,30 +1526,34 @@
         }
 
 
-        /* Helper: Splits a single Turn Chunk into { question, answer } with 100% accuracy */
+        /* Helper: Splits a single Turn Chunk into { question, answer } with ZERO hardcoded chat phrases */
         function splitTurnChunkIntoQA(chunk) {
-            const geminiMarkerRegex = /^(?:#{1,6}\s*)?Gemini said\s*$/im;
-            const gMatch = geminiMarkerRegex.exec(chunk);
+            // 1. Check for Exact DOM Boundary Marker or "Gemini said" heading
+            const exactMarkerRegex = /^(?:@@GEMINI_RESPONSE_START@@|(?:#{1,6}\s*)?Gemini said)\s*$/im;
+            const gMatch = exactMarkerRegex.exec(chunk);
 
             if (gMatch) {
                 const rawQPart = chunk.substring(0, gMatch.index).trim();
                 const rawAPart = chunk.substring(gMatch.index + gMatch[0].length).trim();
 
                 const qLines = rawQPart.split('\n');
-                const firstShift = qLines.shift();
-                const headerPreview = (firstShift ? firstShift : '').trim();
-                while (qLines.length > 0 && qLines[0].trim() === '') qLines.shift();
-
-                // If first line of body duplicates the non-truncated preview header, remove the duplicate preview
-                const joinedQ = qLines.join('\n').trim();
-                const fullQ = joinedQ ? joinedQ : headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
+                if (qLines.length > 1) {
+                    const firstLine = qLines[0].trim();
+                    const restJoined = qLines.slice(1).join('\n').trim();
+                    const previewPrefix = firstLine.replace(/(?:\.\.\.|…)+$/, '').trim();
+                    // Strip the redundant "You said ..." 70-char preview line if the actual question repeats it
+                    if (previewPrefix && restJoined.replace(/\s+/g, ' ').startsWith(previewPrefix.replace(/\s+/g, ' ').slice(0, 20))) {
+                        qLines.shift();
+                    }
+                }
+                const fullQ = qLines.join('\n').trim();
                 return {
-                    question: fullQ,
+                    question: fullQ || '[Uploaded Media / Image]',
                     answer: normalizeResponseCodeBlocks(rawAPart)
                 };
             }
 
-            // FALLBACK (Only runs if Jina Markdown stripped "Gemini said")
+            // 2. UNIVERSAL MARKDOWN FALLBACK (Only used if Jina returned pure Markdown without DOM tags)
             const lines = chunk.split('\n');
             const firstLineShift = lines.shift();
             const headerPreview = (firstLineShift ? firstLineShift : '').trim();
@@ -1549,148 +1566,157 @@
             const previewCore = headerPreview.replace(/(?:\.\.\.|…)+$/, '').trim();
             const normCore = previewCore.replace(/\s+/g, ' ');
             const cleanedLines = lines.filter(l => !/^[ \t]*(?:JPG|JPEG|PNG|WEBP|GIF|\+\s*\d+)[ \t]*$/i.test(l));
-            const wasTruncated = /(?:\.\.\.|…)\s*$/.test(headerPreview) || normCore.length >= 75;
+            const wasTruncated = /(?:\.\.\.|…)\s*$/.test(headerPreview) || normCore.length >= 65;
 
-            // Case 1: Short question (Header preview was NOT truncated by Gemini)
-            if (!wasTruncated && normCore.length > 0) {
-                let acc = '';
-                for (let i = 0; i < cleanedLines.length; i++) {
-                    const t = cleanedLines[i].trim();
-                    if (t !== '') acc += (acc ? ' ' : '') + t;
-                    const normAcc = acc.replace(/\s+/g, ' ');
-                    if (normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
-                        const qText = cleanedLines.slice(0, i + 1).join('\n').trim();
-                        const aText = cleanedLines.slice(i + 1).join('\n').trim();
-                        return {
-                            question: qText,
-                            answer: normalizeResponseCodeBlocks(aText)
-                        };
-                    }
-                }
-            }
-
-            // Case 2: Long multi-line / code-heavy question (Header preview ended with "...")
+            // Find the line index where the 70-character preview prefix is satisfied
             let matchedPreviewIdx = -1;
             let acc = '';
             for (let i = 0; i < cleanedLines.length; i++) {
                 const t = cleanedLines[i].trim();
                 if (t !== '') acc += (acc ? ' ' : '') + t;
                 const normAcc = acc.replace(/\s+/g, ' ');
-                if (normCore.length > 0 && normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(25, normCore.length)))) {
+                if (normCore.length > 0 && normAcc.length >= normCore.length && normAcc.startsWith(normCore.slice(0, Math.min(20, normCore.length)))) {
                     matchedPreviewIdx = i;
                     break;
                 }
             }
 
+            // Case A: Short question (Preview was NOT truncated with "…")
+            if (!wasTruncated && matchedPreviewIdx !== -1) {
+                const qText = cleanedLines.slice(0, matchedPreviewIdx + 1).join('\n').trim();
+                const aText = cleanedLines.slice(matchedPreviewIdx + 1).join('\n').trim();
+                return {
+                    question: qText || previewCore,
+                    answer: normalizeResponseCodeBlocks(aText)
+                };
+            }
+
+            // Case B: Long multi-paragraph or log/code question (Preview WAS truncated with "…")
             if (matchedPreviewIdx !== -1) {
                 let qEnd = matchedPreviewIdx;
-                let insideUserCodeFence = false;
+                let insideFence = false;
 
                 for (let k = matchedPreviewIdx + 1; k < cleanedLines.length; k++) {
                     const line = cleanedLines[k];
                     const t = line.trim();
 
-                    // Track if the user pasted a ``` code block inside their question
                     if (t.startsWith('```')) {
-                        insideUserCodeFence = !insideUserCodeFence;
+                        insideFence = !insideFence;
                         qEnd = k;
                         continue;
                     }
-                    if (insideUserCodeFence) {
+                    if (insideFence) {
                         qEnd = k;
                         continue;
                     }
                     if (t === '') continue;
 
-                    const prevQuestionLine = cleanedLines[qEnd] ? cleanedLines[qEnd].trim() : '';
+                    // Look ahead for the next non-empty line to check if `t` is a short title above a list/paragraph
+                    let nextNonEmpty = '';
+                    for (let m = k + 1; m < cleanedLines.length; m++) {
+                        if (cleanedLines[m].trim() !== '') {
+                            nextNonEmpty = cleanedLines[m].trim();
+                            break;
+                        }
+                    }
 
-                    // 1. FIRST check if the previous question line was an explicit closing line of the user's prompt!
-                    if (
-                        /ask me if you need anything else\s*[.!]?$/i.test(prevQuestionLine) ||
-                        /every screenshots?\s+etc\s+all\s*\)\s*[.!]?$/i.test(prevQuestionLine) ||
-                        /remove the sim card/i.test(prevQuestionLine) ||
-                        /discharging fast\s*,*\s*why\s*\?/i.test(prevQuestionLine)
-                    ) {
+                    // Universal Structural Check: Is `t` the beginning of Gemini's response?
+                    const isMarkdownHeadingOrList =
+                        /^#{1,6}\s+/.test(t) ||
+                        /^\d+\.\s+\*\*[^*]+\*\*/.test(t) ||
+                        /^\*\s+\*\*[^*]+\*\*/.test(t);
+
+                    const isPoliteAiOpening =
+                        /^(?:Here is|Here's|Here are|Below is|The short answer|Both of these|To fix|To resolve|To get|To completely|To copy|Let's|Great question|Certainly|Sure!|Absolutely|Yes,|No,|That is|Those warnings|The error|The "Couldn't|The "No space|Your screenshot|Your settings|Your PC|Your phone|Your backup|You are|You have|You should|You must|You can|Based on|Switching to|Since you|Because you|I will|Flashing )/i.test(t);
+
+                    // Formal AI declarative opening sentence: Starts with Capital, > 55 chars, proper punctuation, no informal `,,` or `??` or `!!`
+                    const isFormalAiParagraph =
+                        /^[A-Z]/.test(t) &&
+                        t.length > 55 &&
+                        /[.:]$/.test(t) &&
+                        !/(\?\?|!!|\s,,\s|\bi\b)/.test(t) &&
+                        !/^[A-Z]:\\/.test(t) &&
+                        !/^[a-z0-9_-]+@[a-z0-9_-]+:/i.test(t);
+
+                    // Short AI section header followed immediately by a formal AI paragraph or STEP block
+                    const isAiSectionHeader =
+                        /^[A-Z][A-Za-z0-9\s&()/-]{4,65}$/.test(t) &&
+                        !/[?!.,]/.test(t) &&
+                        (/^(?:STEP\s+\d+|Plaintext|Bash|DOS|Standard\s+plain\s+text)/i.test(nextNonEmpty) ||
+                         (/^[A-Z]/.test(nextNonEmpty) && nextNonEmpty.length > 60 && !/(\?\?|!!|\s,,\s|\bi\b)/.test(nextNonEmpty)));
+
+                    if (isMarkdownHeadingOrList || isPoliteAiOpening || isFormalAiParagraph || isAiSectionHeader) {
                         break;
                     }
 
-                    // 2. Check if THIS line `t` is unmistakably the start of a Gemini AI Response
-                    const isDefiniteGeminiResponseStart =
-                        /^#{1,6}\s+/.test(t) || // Markdown Heading (#, ##, ###)
-                        /^(?:Here is|Here's|Below is|The short answer is|Both of these issues|To fix this|To resolve this|Let's break down|Great question|Certainly!|Sure!|Absolutely!)/i.test(t) ||
-                        /^[A-Za-z0-9_-]+\s+is\s+failing\s+to\s+detect\s+your\b/i.test(t) ||
-                        /^How\s+to\s+Save\s+&\s+View\b/i.test(t) ||
-                        /^Standard\s+plain\s+text\s+\(/i.test(t) ||
-                        /^\d+\.\s+\*\*[^*]+\*\*/.test(t) || // Numbered bold step "1. **Step:**"
-                        /^\*\s+\*\*[^*]+\*\*/.test(t);      // Bullet bold point "* **Point:**"
-
-                    if (isDefiniteGeminiResponseStart) {
-                        break;
-                    }
-
-                    // Otherwise, keep the line inside the User's Question (even if > 70 chars, or has spaces/HTML/logs!)
                     qEnd = k;
                 }
 
                 const questionText = cleanedLines.slice(0, qEnd + 1).join('\n').trim();
                 const answerText = cleanedLines.slice(qEnd + 1).join('\n').trim();
                 return {
-                    question: questionText ? questionText : previewCore,
+                    question: questionText || previewCore,
                     answer: normalizeResponseCodeBlocks(answerText)
                 };
             }
 
             return {
-                question: previewCore ? previewCore : 'User Prompt',
+                question: previewCore || 'User Prompt',
                 answer: normalizeResponseCodeBlocks(cleanedLines.join('\n'))
             };
         }
 
-        
         function cleanScrapedGeminiMarkdown(payload) {
             let text = String(payload ? payload : '').replace(/\r/g, '');
 
-            /* ROUTE A: HTML DOM CONTAINER EXTRACTION */
-            if (text.includes('<') && (text.includes('<user-query') || text.includes('<model-response') || text.includes('<html') || text.includes('<body') || text.includes('<h5') || text.includes('<h6'))) {
+            /* ROUTE A: EXACT HTML DOM EXTRACTION */
+            if (text.includes('<') && (text.includes('<user-query') || text.includes('<model-response') || text.includes('query-text') || text.includes('message-content') || text.includes('<h5') || text.includes('<h6') || text.includes('<body') || text.includes('<div'))) {
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(text, 'text/html');
 
-                    const domNodes = doc.querySelectorAll('user-query, model-response, [data-message-author-role], .user-query-container, .response-container');
+                    // Remove junk UI badges, follow-up chips, and hidden screen-reader noise globally first
+                    doc.querySelectorAll('source-footnote, .citation, .follow-up-suggestions, [class*="suggestion"], mat-icon, svg, script, style').forEach(el => el.remove());
+
+                    // 1. Check for explicit User / Model turn containers (including class-based containers used by Gemini Share)
+                    const domNodes = doc.querySelectorAll('user-query, model-response, [data-message-author-role], .user-query-container, .response-container, .conversation-turn');
                     if (typeof logDebug === 'function') {
-                        logDebug('DOM Check -> Custom Elements (<user-query>/<model-response>): ' + domNodes.length, 'info');
+                        logDebug('DOM Check -> Turn Containers found: ' + domNodes.length, 'info');
                     }
 
-                    if (domNodes.length >= 2) {
+                    if (domNodes.length >= 2 && doc.querySelectorAll('user-query, [data-message-author-role="user"], .user-query-container').length >= 1) {
                         const domTurns = [];
                         let pendingQ = null;
 
                         domNodes.forEach(node => {
                             const tag = node.tagName.toLowerCase();
-                            const roleAttr = node.getAttribute('data-message-author-role');
-                            const role = roleAttr ? roleAttr : '';
-                            const isUser = tag === 'user-query' || role === 'user';
+                            const roleAttr = node.getAttribute('data-message-author-role') || '';
+                            const cls = typeof node.className === 'string' ? node.className : '';
+                            const isUser = tag === 'user-query' || roleAttr === 'user' || cls.includes('user-query');
+                            const isModel = tag === 'model-response' || roleAttr === 'model' || roleAttr === 'assistant' || cls.includes('response-container');
+
+                            if (!isUser && !isModel) return;
 
                             if (isUser) {
                                 if (pendingQ !== null) {
-                                    domTurns.push({ question: pendingQ ? pendingQ : '[Uploaded Media]', answer: '' });
+                                    domTurns.push({ question: pendingQ || '[Uploaded Media / Image]', answer: '' });
                                 }
                                 pendingQ = convertGeminiDomNodeToMarkdown(node, true);
-                            } else {
+                            } else if (isModel) {
                                 const ansMd = convertGeminiDomNodeToMarkdown(node, false);
                                 if (pendingQ !== null) {
-                                    domTurns.push({ question: pendingQ ? pendingQ : '[Uploaded Media]', answer: ansMd });
+                                    domTurns.push({ question: pendingQ || '[Uploaded Media / Image]', answer: ansMd });
                                     pendingQ = null;
                                 } else if (domTurns.length > 0 && !domTurns[domTurns.length - 1].answer) {
                                     domTurns[domTurns.length - 1].answer = ansMd;
                                 } else if (ansMd) {
-                                    domTurns.push({ question: 'User Prompt', answer: ansMd });
+                                    domTurns.push({ question: '[Uploaded Media / Image]', answer: ansMd });
                                 }
                             }
                         });
 
                         if (pendingQ !== null) {
-                            domTurns.push({ question: pendingQ, answer: '' });
+                            domTurns.push({ question: pendingQ || '[Uploaded Media / Image]', answer: '' });
                         }
 
                         const validDomTurns = domTurns.filter(t => t.question || t.answer);
@@ -1702,25 +1728,34 @@
                         }
                     }
 
-                    const allHeadings = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6'));
-                    const youSaidHeadings = allHeadings.filter(h => /^\s*You said\b/i.test(h.textContent ? h.textContent : ''));
-                    const geminiSaidHeadings = allHeadings.filter(h => /^\s*Gemini said\b/i.test(h.textContent ? h.textContent : ''));
+                    // 2. If custom tags were stripped by Jina HTML, mark exact response containers BEFORE converting to Markdown!
+                    const bodyClone = doc.body.cloneNode(true);
 
-                    if (typeof logDebug === 'function') {
-                        logDebug('DOM Check -> "You said" headings: ' + youSaidHeadings.length + ' | "Gemini said" headings: ' + geminiSaidHeadings.length, 'info');
-                    }
+                    // Inject @@GEMINI_RESPONSE_START@@ before every model response block in the DOM so Question & Answer NEVER mix!
+                    bodyClone.querySelectorAll('model-response, .model-response-text, .response-container, .markdown, message-content, [class*="model-response"], [class*="response-content"]').forEach(respEl => {
+                        // Only mark top-level response containers (not nested children)
+                        if (respEl.parentElement && respEl.parentElement.closest('model-response, .model-response-text, .response-container, message-content')) {
+                            return;
+                        }
+                        const marker = doc.createElement('p');
+                        marker.textContent = '\n@@GEMINI_RESPONSE_START@@\n';
+                        respEl.parentNode.insertBefore(marker, respEl);
+                    });
 
-                    if (youSaidHeadings.length > 0) {
-                        const bodyClone = doc.body.cloneNode(true);
-                        bodyClone.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
-                            const txt = (h.textContent ? h.textContent : '').trim();
-                            if (/^You said\b/i.test(txt)) {
-                                const preview = txt.replace(/^You said\s*/i, '').trim();
-                                h.textContent = '\n##### You said ' + preview + '\n';
-                            } else if (/^Gemini said\b/i.test(txt)) {
-                                h.textContent = '\n###### Gemini said\n';
-                            }
-                        });
+                    const allHeadings = Array.from(bodyClone.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]'));
+                    let youSaidCount = 0;
+                    allHeadings.forEach(h => {
+                        const txt = (h.textContent ? h.textContent : '').trim();
+                        if (/^You said\b/i.test(txt)) {
+                            youSaidCount++;
+                            const preview = txt.replace(/^You said\s*/i, '').trim();
+                            h.textContent = '\n##### You said ' + preview + '\n';
+                        } else if (/^Gemini said\b/i.test(txt)) {
+                            h.textContent = '\n@@GEMINI_RESPONSE_START@@\n';
+                        }
+                    });
+
+                    if (youSaidCount > 0) {
                         text = convertGeminiDomNodeToMarkdown(bodyClone, false);
                     }
                 } catch (domErr) {
@@ -1735,7 +1770,8 @@
                 '\nGemini may display inaccurate info',
                 '\nGemini is AI and can make mistakes',
                 '\n[About Gemini](',
-                '\nCopy public link'
+                '\nCopy public link',
+                '\nGoogle Privacy Policy'
             ];
             for (const marker of footerMarkers) {
                 const idx = text.lastIndexOf(marker);
