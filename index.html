@@ -1065,7 +1065,7 @@
         }
 
 
-        // Updated Extraction Logic (With Relaxed Shield)
+        // Updated Extraction Logic (Strict Isolation of HTML vs Markdown)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1079,13 +1079,16 @@
             let resolvedShareUrl = urlInput;
             const proxyUrl = 'https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
-            // Shield: Accept huge payloads instantly, reject tiny blank Google footers
-            function isValid(pt) {
-                if (!pt) return false;
-                if (pt.length > 5000) return true; 
+            // Strict Shield: Must actually contain Gemini identifiers, regardless of size!
+            function isValidHtml(pt) {
+                if (!pt || pt.length < 200) return false;
                 if (pt.includes('/intl/en/about/products') && pt.length < 2000) return false;
-                if (pt.includes('You said') || pt.includes('query-text')) return true;
-                return false;
+                return pt.includes('data-message-author-role') || pt.includes('query-text') || pt.includes('model-response') || pt.includes('user-query');
+            }
+            function isValidMd(pt) {
+                if (!pt || pt.length < 200) return false;
+                if (pt.includes('Check your internet connection') && pt.length < 2000) return false;
+                return pt.includes('You said') || pt.includes('Gemini said');
             }
 
             try {
@@ -1099,8 +1102,8 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    if (isValid(data.renderedHtml)) renderedHtmlPayload = data.renderedHtml;
-                    if (isValid(data.markdown)) markdownPayload = data.markdown;
+                    if (isValidHtml(data.renderedHtml)) renderedHtmlPayload = data.renderedHtml;
+                    if (isValidMd(data.markdown)) markdownPayload = data.markdown;
                 } else {
                     const errText = await rawRes.text();
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
@@ -1111,39 +1114,46 @@
 
             try {
                 // Direct Fallback (If Vercel timeout occurs)
-                if (!isValid(renderedHtmlPayload)) {
-                    logDebug('Vercel HTML missing. Retrying directly from Headless Stream (HTML Mode)...', 'warn');
-                    showStatus('Streaming Chat Payload (DOM Mode) 🪄 .....');
-                    const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true' }
-                    });
-                    if (directHtmlRes.ok) {
-                        const fallbackHtml = await directHtmlRes.text();
-                        if (isValid(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
-                    }
-                }
-                
-                if (!isValid(markdownPayload)) {
+                if (!isValidHtml(renderedHtmlPayload) && !isValidMd(markdownPayload)) {
+                    logDebug('Vercel payload missing. Retrying directly from Headless Stream...', 'warn');
+                    showStatus('Streaming Chat Payload (Direct) 🪄 .....');
+                    
                     const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                         headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown', 'X-No-Cache': 'true' }
                     });
                     if (directMdRes.ok) {
                         const fallbackMd = await directMdRes.text();
-                        if (isValid(fallbackMd)) markdownPayload = fallbackMd;
+                        if (isValidMd(fallbackMd)) markdownPayload = fallbackMd;
+                    }
+
+                    if (!isValidMd(markdownPayload)) {
+                        const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true' }
+                        });
+                        if (directHtmlRes.ok) {
+                            let fallbackHtml = await directHtmlRes.text();
+                            // Critically strip raw CSS/JS if fetched directly by client!
+                            fallbackHtml = fallbackHtml
+                                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                                .replace(/<svg[\s\S]*?<\/svg>/gi, '');
+                            if (isValidHtml(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
+                        }
                     }
                 }
 
                 let turns = [];
-                // 1. PRIORITIZE HTML DOM PARSING (100% Boundary Accuracy via Classes)
-                if (isValid(renderedHtmlPayload)) {
-                    logDebug('Parsing HTML DOM Payload (' + renderedHtmlPayload.length.toLocaleString() + ' chars)...', 'info');
-                    turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload);
+
+                // 1. Prioritize HTML DOM Engine (100% Boundary Accuracy via data-message-author-role)
+                if (isValidHtml(renderedHtmlPayload)) {
+                    logDebug('Parsing HTML DOM Payload...', 'info');
+                    turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload, true);
                 }
 
-                // 2. Fallback to Markdown ONLY if HTML extraction failed
-                if (turns.length === 0 && isValid(markdownPayload)) {
-                    logDebug('HTML DOM classes not found. Falling back to Markdown parser...', 'warn');
-                    turns = cleanScrapedGeminiMarkdown(markdownPayload);
+                // 2. Fallback to Markdown Engine ONLY if HTML failed
+                if (turns.length === 0 && isValidMd(markdownPayload)) {
+                    logDebug('HTML DOM classes not found. Using Markdown Text Engine...', 'warn');
+                    turns = cleanScrapedGeminiMarkdown(markdownPayload, false);
                 }
 
                 if (turns.length > 0) {
@@ -1169,7 +1179,6 @@
             }
         }
 
-        //   Debugger Copy Function
         function copyDebugLogs(btnElem) {
             const logOutput = document.getElementById('debug-log-output');
             if (!logOutput) return;
@@ -1409,10 +1418,8 @@
             return md.trim();
         }
 
-
         /* Helper: Splits a single Turn Chunk into QA purely for Markdown fallback */
         function splitTurnChunkIntoQA(chunk) {
-            // 1. Universal Marker: If Jina preserved "Gemini said", it's a 100% perfect split.
             const geminiMarkerRegex = /^(?:#{1,6}\s*)?Gemini said\s*$/im;
             const gMatch = geminiMarkerRegex.exec(chunk);
 
@@ -1430,7 +1437,6 @@
                 return { question: fullQ, answer: normalizeResponseCodeBlocks(rawAPart) };
             }
 
-            // 2. Generic Guessing Heuristic (If marker is missing)
             const lines = chunk.split('\n');
             const firstLineShift = lines.shift();
             const headerPreview = (firstLineShift ? firstLineShift : '').trim();
@@ -1464,27 +1470,18 @@
                     const t = line.trim();
                     if (t === '') continue;
 
-                    // Standard universal boundaries for Gemini's response
                     const isMarkdownHeading = /^#{1,6}\s+/.test(t);
                     const isCodeFence = /^```/.test(t);
                     const isHtmlDoc = /^<!DOCTYPE html>/i.test(t);
                     
-                    // PURELY GENERIC user continuation words (No hardcoded PC/Phone/Code words!)
                     const isGenericUserContinuation = /^(?:•+|-+|\?\?+|And\b|Or\b|But\b|How\b|Should\b|What\b|Will\b|Where\b|Even\b|Also\b|Now\b|Give\b|If\b|Keep\b|I\b|I'm\b|I'll\b|Please\b|Can you\b|Could you\b)/i.test(t);
 
                     if (isMarkdownHeading || isCodeFence || isHtmlDoc) break;
                     if (isGenericUserContinuation) { qEnd = k; continue; }
 
                     const prevQuestionLine = cleanedLines[qEnd] ? cleanedLines[qEnd].trim() : '';
-                    
-                    // If the previous line ended with a question mark, the next line is usually Gemini's answer
-                    if (/\?\s*$/.test(prevQuestionLine)) {
-                        break;
-                    }
-
-                    // If the line is a long, grammatically correct sentence starting with a Capital letter, it's Gemini.
+                    if (/\?\s*$/.test(prevQuestionLine)) break;
                     if (t.length > 70 && !/,,|!!|\?\?/.test(t) && /^[A-Z]/.test(t)) break;
-                    
                     qEnd = k;
                 }
 
@@ -1502,19 +1499,18 @@
             };
         }
 
-
-        function cleanScrapedGeminiMarkdown(payload) {
+        // The Master Router: Strictly applies the correct engine to the correct payload type
+        function cleanScrapedGeminiMarkdown(payload, isHtmlMode) {
             let text = String(payload ? payload : '').replace(/\r/g, '');
 
-            /* ROUTE A: 100% PERFECT HTML DOM CLASS-BASED PAIRING */
-            if (text.includes('<') && (text.includes('query-text') || text.includes('model-response'))) {
+            if (isHtmlMode) {
                 try {
                     const parser = new DOMParser();
                     const doc = parser.parseFromString(text, 'text/html');
 
-                    // Extract all Question containers and Answer containers
-                    const queryNodes = Array.from(doc.querySelectorAll('.query-text, [class*="query-text"], user-query'));
-                    const responseNodes = Array.from(doc.querySelectorAll('.model-response-text, [class*="response-text"], model-response'));
+                    // Match Google's strict universal component attributes
+                    const queryNodes = Array.from(doc.querySelectorAll('user-query, [data-message-author-role="user"], .query-text, .user-query-text'));
+                    const responseNodes = Array.from(doc.querySelectorAll('model-response, [data-message-author-role="model"], .model-response-text'));
 
                     if (typeof logDebug === 'function') {
                         logDebug('DOM Check -> Found ' + queryNodes.length + ' Question Nodes & ' + responseNodes.length + ' Response Nodes.', 'info');
@@ -1526,26 +1522,23 @@
                         for(let i = 0; i < maxLen; i++) {
                             const qNode = queryNodes[i];
                             const rNode = responseNodes[i];
-                            let qText = 'User Prompt';
+                            let qText = '';
                             let rText = '';
-                            if (qNode) {
-                                qText = convertGeminiDomNodeToMarkdown(qNode, true) || 'User Prompt';
-                            }
-                            if (rNode) {
-                                rText = convertGeminiDomNodeToMarkdown(rNode, false);
-                            }
+                            if (qNode) qText = convertGeminiDomNodeToMarkdown(qNode, true) || 'User Prompt';
+                            if (rNode) rText = convertGeminiDomNodeToMarkdown(rNode, false);
                             if (qText || rText) domTurns.push({ question: qText, answer: rText });
                         }
                         if (domTurns.length > 0) return domTurns;
                     }
                 } catch (domErr) {
                     if (typeof logDebug === 'function') {
-                        logDebug('DOM Parser notice: ' + domErr.message + '. Using Markdown parser...', 'warn');
+                        logDebug('DOM Parser Exception: ' + domErr.message, 'error');
                     }
                 }
+                return []; // If HTML mode fails, return empty so the router triggers Markdown Fallback!
             }
 
-            /* ROUTE B: MARKDOWN PARSER BACKUP */
+            // --- ROUTE B: MARKDOWN ENGINE ---
             const footerMarkers = [
                 '\nGemini may display inaccurate info',
                 '\nGemini is AI and can make mistakes',
