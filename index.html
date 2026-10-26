@@ -1069,7 +1069,6 @@
         // Global variable to hold the Raw HTML for debugging
         window.__DEBUG_RAW_HTML = '';
 
-        // Updated Extraction Logic 
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
@@ -1096,7 +1095,7 @@
             }
 
             try {
-                logDebug('Calling Vercel Endpoint (Edge Runtime - 30s Limit) : ' + proxyUrl, 'warn');
+                logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
                 const rawRes = await fetch(proxyUrl);
                 logDebug('Vercel HTTP Status : ' + rawRes.status, rawRes.ok ? 'success' : 'error');
 
@@ -1106,6 +1105,10 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
+                    
+                    // 🚨 UNCONDITIONALLY SAVE WHAT VERCEL SAW SO YOU CAN DOWNLOAD IT
+                    window.__DEBUG_RAW_HTML = data.renderedHtml ? data.renderedHtml : (data.markdown ? data.markdown : '<!-- Vercel returned empty -->');
+
                     if (isValidHtml(data.renderedHtml)) renderedHtmlPayload = data.renderedHtml;
                     if (isValidMd(data.markdown)) markdownPayload = data.markdown;
                 } else {
@@ -1116,34 +1119,22 @@
                 logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct stream fallback...', 'warn');
             }
 
-            // Save the exact payload received from Vercel so you can debug it
-            window.__DEBUG_RAW_HTML = renderedHtmlPayload;
-
             try {
                 if (!isValidHtml(renderedHtmlPayload) && !isValidMd(markdownPayload)) {
                     logDebug('Vercel payload missing. Retrying directly from Headless Stream...', 'warn');
                     showStatus('Streaming Chat Payload (Direct) 🪄 .....');
                     
-                    const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown', 'X-No-Cache': 'true' }
+                    const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true', 'X-Wait-For-Selector': '.query-text' }
                     });
-                    if (directMdRes.ok) {
-                        const fallbackMd = await directMdRes.text();
-                        if (isValidMd(fallbackMd)) markdownPayload = fallbackMd;
-                    }
+                    if (directHtmlRes.ok) {
+                        let fallbackHtml = await directHtmlRes.text();
+                        
+                        // 🚨 UNCONDITIONALLY SAVE WHAT THE DIRECT BROWSER SAW
+                        window.__DEBUG_RAW_HTML = fallbackHtml;
 
-                    if (!isValidMd(markdownPayload)) {
-                        const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true' }
-                        });
-                        if (directHtmlRes.ok) {
-                            let fallbackHtml = await directHtmlRes.text();
-                            fallbackHtml = fallbackHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
-                            if (isValidHtml(fallbackHtml)) {
-                                renderedHtmlPayload = fallbackHtml;
-                                window.__DEBUG_RAW_HTML = fallbackHtml; // Update debug payload if fallback used
-                            }
-                        }
+                        fallbackHtml = fallbackHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
+                        if (isValidHtml(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
                     }
                 }
 
@@ -1161,13 +1152,6 @@
 
                 if (turns.length > 0) {
                     logDebug('Extracted ' + turns.length + ' Conversation Turn(s).', 'success');
-                    const firstT = turns[0];
-                    const lastT = turns[turns.length - 1];
-                    logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
-                    if (turns.length > 1) {
-                        logDebug('Turn ' + turns.length + ' Check -> Q' + turns.length + ': ' + lastT.question.length + ' chars | R' + turns.length + ': ' + lastT.answer.length + ' chars', 'info');
-                    }
-
                     buildFormattedChatLines(turns);
                     hideStatus();
                     logDebug('Chat successfully formatted into UI engine!', 'success');
@@ -1178,9 +1162,10 @@
             } catch (err) {
                 logDebug('Execution Failed: ' + err.message, 'error');
                 hideStatus();
-                alert('⚠️ Extraction timeout: ' + err.message);
+                // We don't alert here anymore, so you can easily click the Save Raw HTML button
             }
         }
+
 
         // Action for the new Download Raw HTML button
         function downloadRawVercelHtml(btnElem) {
