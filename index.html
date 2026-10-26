@@ -651,6 +651,7 @@
             <div style="background: rgba(88, 166, 255, 0.15); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(88, 166, 255, 0.3);">
                 <span style="color: #58a6ff; font-family: 'Montserrat', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1px;">⚙️   SYSTEM  DEBUGGER</span>
                 <div style="display: flex; gap: 12px; align-items: center;">
+                    <button onclick="downloadRawVercelHtml(this)" style="background: rgba(46, 160, 67, 0.2); border: 1px solid #3fb950; color: #fff; border-radius: 4px; padding: 5px 12px; font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600; cursor: pointer; transition: 0.2s;">💾 Save Raw Vercel HTML</button>
                     <button onclick="copyDebugLogs(this)" style="background: rgba(88, 166, 255, 0.2); border: 1px solid #58a6ff; color: #fff; border-radius: 4px; padding: 5px 12px; font-family: 'Montserrat', sans-serif; font-size: 11px; font-weight: 600; cursor: pointer; transition: 0.2s;">📋 Copy Logs</button>
                     <button onclick="document.getElementById('debug-terminal').style.display='none'" style="background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 14px; font-weight: bold;">✕</button>
                 </div>
@@ -1065,12 +1066,16 @@
         }
 
 
-        // Updated Extraction Logic (Strict Isolation of HTML vs Markdown)
+        // Global variable to hold the Raw HTML for debugging
+        window.__DEBUG_RAW_HTML = '';
+
+        // Updated Extraction Logic 
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
             document.getElementById('debug-log-output').innerHTML = '';
+            window.__DEBUG_RAW_HTML = ''; // Reset debug payload
             logDebug('Starting extraction for: ' + urlInput, 'info');
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
@@ -1079,7 +1084,6 @@
             let resolvedShareUrl = urlInput;
             const proxyUrl = 'https://gemini-fetcher-vercel.vercel.app/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
-            // Strict Shield: Must actually contain Gemini identifiers, regardless of size!
             function isValidHtml(pt) {
                 if (!pt || pt.length < 200) return false;
                 if (pt.includes('/intl/en/about/products') && pt.length < 2000) return false;
@@ -1092,7 +1096,7 @@
             }
 
             try {
-                logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
+                logDebug('Calling Vercel Endpoint (Edge Runtime - 30s Limit) : ' + proxyUrl, 'warn');
                 const rawRes = await fetch(proxyUrl);
                 logDebug('Vercel HTTP Status : ' + rawRes.status, rawRes.ok ? 'success' : 'error');
 
@@ -1112,8 +1116,10 @@
                 logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct stream fallback...', 'warn');
             }
 
+            // Save the exact payload received from Vercel so you can debug it
+            window.__DEBUG_RAW_HTML = renderedHtmlPayload;
+
             try {
-                // Direct Fallback (If Vercel timeout occurs)
                 if (!isValidHtml(renderedHtmlPayload) && !isValidMd(markdownPayload)) {
                     logDebug('Vercel payload missing. Retrying directly from Headless Stream...', 'warn');
                     showStatus('Streaming Chat Payload (Direct) 🪄 .....');
@@ -1132,25 +1138,22 @@
                         });
                         if (directHtmlRes.ok) {
                             let fallbackHtml = await directHtmlRes.text();
-                            // Critically strip raw CSS/JS if fetched directly by client!
-                            fallbackHtml = fallbackHtml
-                                .replace(/<script[\s\S]*?<\/script>/gi, '')
-                                .replace(/<style[\s\S]*?<\/style>/gi, '')
-                                .replace(/<svg[\s\S]*?<\/svg>/gi, '');
-                            if (isValidHtml(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
+                            fallbackHtml = fallbackHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
+                            if (isValidHtml(fallbackHtml)) {
+                                renderedHtmlPayload = fallbackHtml;
+                                window.__DEBUG_RAW_HTML = fallbackHtml; // Update debug payload if fallback used
+                            }
                         }
                     }
                 }
 
                 let turns = [];
 
-                // 1. Prioritize HTML DOM Engine (100% Boundary Accuracy via data-message-author-role)
                 if (isValidHtml(renderedHtmlPayload)) {
                     logDebug('Parsing HTML DOM Payload...', 'info');
                     turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload, true);
                 }
 
-                // 2. Fallback to Markdown Engine ONLY if HTML failed
                 if (turns.length === 0 && isValidMd(markdownPayload)) {
                     logDebug('HTML DOM classes not found. Using Markdown Text Engine...', 'warn');
                     turns = cleanScrapedGeminiMarkdown(markdownPayload, false);
@@ -1179,6 +1182,18 @@
             }
         }
 
+        // Action for the new Download Raw HTML button
+        function downloadRawVercelHtml(btnElem) {
+            if (!window.__DEBUG_RAW_HTML) {
+                alert("No HTML payload captured yet! Fetch a chat first.");
+                return;
+            }
+            triggerBrowserDownload(window.__DEBUG_RAW_HTML, 'vercel_debug_raw.html', 'text/html;charset=utf-8');
+            const originalText = btnElem.innerText;
+            btnElem.innerText = '✅ Downloaded!';
+            setTimeout(() => { btnElem.innerText = originalText; }, 1500);
+        }
+
         function copyDebugLogs(btnElem) {
             const logOutput = document.getElementById('debug-log-output');
             if (!logOutput) return;
@@ -1198,6 +1213,7 @@
             });
         }
 
+        
         // ================================================================================
         //      🪄  UNIVERSAL  DOM-CONTAINER  &  MARKDOWN  TURN  EXTRACTOR  🪄
         // ================================================================================
