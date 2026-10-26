@@ -1065,79 +1065,101 @@
         }
 
 
-        // Updated Extraction Logic (DOM-Container + Markdown Fallback with Deep Diagnostic Logs)
+        // Updated Extraction Logic (Uses Resolved Canonical URL + Cache Opt-Out)
         async function extractFromGeminiLink() {
             const urlInput = document.getElementById('gemini-url-input').value.trim();
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
             document.getElementById('debug-log-output').innerHTML = '';
-            logDebug(`Starting extraction for: ${urlInput}`, 'info');
+            logDebug('Starting extraction for: ' + urlInput, 'info');
             showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
 
             let renderedHtmlPayload = '';
             let markdownPayload = '';
+            let resolvedShareUrl = urlInput;
             const myVercelDomain = 'gemini-fetcher-vercel.vercel.app'; 
-            const proxyUrl = `https://${myVercelDomain}/api/fetch-chat?url=${encodeURIComponent(urlInput)}`;
+            const proxyUrl = 'https://' + myVercelDomain + '/api/fetch-chat?url=' + encodeURIComponent(urlInput);
 
             try {
-                logDebug(`Calling Vercel Endpoint : ${proxyUrl}`, 'warn');
+                logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
                 const rawRes = await fetch(proxyUrl);
-                logDebug(`Vercel HTTP Status : ${rawRes.status}`, rawRes.ok ? 'success' : 'error');
+                logDebug('Vercel HTTP Status : ' + rawRes.status, rawRes.ok ? 'success' : 'error');
 
                 if (rawRes.ok) {
                     const data = await rawRes.json();
-                    if (data.finalUrl) logDebug(`Resolved Share URL : ${data.finalUrl}`, 'info');
-                    renderedHtmlPayload = data.renderedHtml || '';
-                    markdownPayload = data.markdown || '';
+                    if (data.finalUrl) {
+                        resolvedShareUrl = data.finalUrl.split('?')[0];
+                        logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
+                    }
+                    renderedHtmlPayload = data.renderedHtml ? data.renderedHtml : '';
+                    markdownPayload = data.markdown ? data.markdown : '';
                     logDebug(
-                        `Payload Sizes -> HTML: ${renderedHtmlPayload.length.toLocaleString()} chars | Markdown: ${markdownPayload.length.toLocaleString()} chars`,
+                        'Payload Sizes -> HTML: ' + renderedHtmlPayload.length.toLocaleString() + ' chars | Markdown: ' + markdownPayload.length.toLocaleString() + ' chars',
                         'info'
                     );
                 } else {
                     const errText = await rawRes.text();
-                    logDebug(`Vercel Error Details : ${errText.slice(0, 220)}`, 'error');
+                    logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
                 }
             } catch (vercelErr) {
-                logDebug(`Vercel proxy notice (${vercelErr.message}). Trying direct stream fallback...`, 'warn');
+                logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct stream fallback...', 'warn');
             }
 
             try {
-                // Direct Stream Fallback if Vercel returned empty
+                // Direct Stream Fallback: Always use resolvedShareUrl (never raw shortlink) + X-No-Cache
                 if (renderedHtmlPayload.trim().length <= 40 && markdownPayload.trim().length <= 40) {
-                    logDebug('Fetching directly from Headless Stream (Markdown route)...', 'warn');
+                    logDebug('Fetching directly from Headless Stream for: ' + resolvedShareUrl, 'warn');
                     showStatus('Streaming Chat Payload 🪄 .....');
-                    const directRes = await fetch(`https://r.jina.ai/${urlInput}`, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown' }
+                    const directRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                        headers: {
+                            'Accept': 'text/plain',
+                            'X-Return-Format': 'markdown',
+                            'X-No-Cache': 'true'
+                        }
                     });
                     if (directRes.ok) {
                         markdownPayload = await directRes.text();
+                        logDebug('Direct Stream Received: ' + markdownPayload.length.toLocaleString() + ' chars', 'info');
                     }
                 }
 
-                // Prefer HTML DOM if available, otherwise Markdown, and cross-verify turn counts!
+                // Reject Jina error snapshots ("Check your internet connection and try again")
+                if (markdownPayload.includes('Check your internet connection and try again') && !markdownPayload.includes('You said')) {
+                    logDebug('Warning: Headless renderer returned offline error page. Retrying with cache bypass...', 'warn');
+                    const retryRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                        headers: {
+                            'Accept': 'text/plain',
+                            'X-Return-Format': 'markdown',
+                            'X-No-Cache': 'true'
+                        }
+                    });
+                    if (retryRes.ok) {
+                        markdownPayload = await retryRes.text();
+                    }
+                }
+
                 let turns = [];
                 if (renderedHtmlPayload && renderedHtmlPayload.trim().length > 100) {
-                    logDebug(`Parsing HTML DOM Payload (${renderedHtmlPayload.length.toLocaleString()} chars)...`, 'info');
+                    logDebug('Parsing HTML DOM Payload (' + renderedHtmlPayload.length.toLocaleString() + ' chars)...', 'info');
                     turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload);
                 }
 
                 if (markdownPayload && markdownPayload.trim().length > 100) {
                     const mdTurns = cleanScrapedGeminiMarkdown(markdownPayload);
                     if (mdTurns.length > turns.length) {
-                        logDebug(`Markdown route yielded ${mdTurns.length} turns (vs DOM ${turns.length}). Using complete ${mdTurns.length}-turn set.`, 'info');
+                        logDebug('Markdown route yielded ' + mdTurns.length + ' turns (vs DOM ' + turns.length + '). Using complete ' + mdTurns.length + '-turn set.', 'info');
                         turns = mdTurns;
                     }
                 }
 
-                logDebug(`Extracted ${turns.length} Conversation Turn(s).`, turns.length > 0 ? 'success' : 'warn');
+                logDebug('Extracted ' + turns.length + ' Conversation Turn(s).', turns.length > 0 ? 'success' : 'warn');
 
                 if (turns.length > 0) {
-                    // Log Turn 1 and Last Turn preview lengths for instant verification
                     const firstT = turns[0];
                     const lastT = turns[turns.length - 1];
-                    logDebug(`Turn 1 Check -> Q1: ${firstT.question.length} chars | R1: ${firstT.answer.length} chars`, 'info');
+                    logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
                     if (turns.length > 1) {
-                        logDebug(`Turn ${turns.length} Check -> Q${turns.length}: ${lastT.question.length} chars | R${turns.length}: ${lastT.answer.length} chars`, 'info');
+                        logDebug('Turn ' + turns.length + ' Check -> Q' + turns.length + ': ' + lastT.question.length + ' chars | R' + turns.length + ': ' + lastT.answer.length + ' chars', 'info');
                     }
 
                     buildFormattedChatLines(turns);
@@ -1148,7 +1170,7 @@
 
                 throw new Error('No conversation turns found in the rendered share link.');
             } catch (err) {
-                logDebug(`Execution Failed: ${err.message}`, 'error');
+                logDebug('Execution Failed: ' + err.message, 'error');
                 hideStatus();
                 alert('⚠️ Extraction failed. Check the System Debugger.');
             }
