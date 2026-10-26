@@ -1074,9 +1074,9 @@
             if (!urlInput) { alert('🪄 Please paste a Gemini Share Link first!'); return; }
 
             document.getElementById('debug-log-output').innerHTML = '';
-            window.__DEBUG_RAW_HTML = ''; // Reset debug payload
+            window.__DEBUG_RAW_HTML = ''; 
             logDebug('Starting extraction for: ' + urlInput, 'info');
-            showStatus('Rendering & Extracting Gemini Chat 🪄 .....');
+            showStatus('Extracting Direct Google HTML 🪄 .....');
 
             let renderedHtmlPayload = '';
             let markdownPayload = '';
@@ -1095,7 +1095,7 @@
             }
 
             try {
-                logDebug('Calling Vercel Endpoint : ' + proxyUrl, 'warn');
+                logDebug('Calling Direct Google Proxy (Vercel) : ' + proxyUrl, 'warn');
                 const rawRes = await fetch(proxyUrl);
                 logDebug('Vercel HTTP Status : ' + rawRes.status, rawRes.ok ? 'success' : 'error');
 
@@ -1105,43 +1105,49 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
-                    
-                    // 🚨 UNCONDITIONALLY SAVE WHAT VERCEL SAW SO YOU CAN DOWNLOAD IT
                     window.__DEBUG_RAW_HTML = data.renderedHtml ? data.renderedHtml : (data.markdown ? data.markdown : '<!-- Vercel returned empty -->');
-
+                    
                     if (isValidHtml(data.renderedHtml)) renderedHtmlPayload = data.renderedHtml;
-                    if (isValidMd(data.markdown)) markdownPayload = data.markdown;
                 } else {
                     const errText = await rawRes.text();
                     logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
                 }
             } catch (vercelErr) {
-                logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct stream fallback...', 'warn');
+                logDebug('Vercel proxy notice (' + vercelErr.message + '). Trying direct Jina fallback...', 'warn');
             }
 
             try {
-                if (!isValidHtml(renderedHtmlPayload) && !isValidMd(markdownPayload)) {
-                    logDebug('Vercel payload missing. Retrying directly from Headless Stream...', 'warn');
-                    showStatus('Streaming Chat Payload (Direct) 🪄 .....');
+                // If Google blocks Vercel for any reason, Fallback to Jina's Headless Browser
+                if (!isValidHtml(renderedHtmlPayload)) {
+                    logDebug('Vercel HTML missing. Retrying directly from Headless Stream...', 'warn');
+                    showStatus('Streaming Backup Payload (Jina) 🪄 .....');
                     
                     const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true', 'X-Wait-For-Selector': '.query-text' }
+                        headers: { 'Accept': 'text/plain', 'X-Return-Format': 'html', 'X-No-Cache': 'true' }
                     });
                     if (directHtmlRes.ok) {
                         let fallbackHtml = await directHtmlRes.text();
-                        
-                        // 🚨 UNCONDITIONALLY SAVE WHAT THE DIRECT BROWSER SAW
                         window.__DEBUG_RAW_HTML = fallbackHtml;
-
                         fallbackHtml = fallbackHtml.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<svg[\s\S]*?<\/svg>/gi, '');
                         if (isValidHtml(fallbackHtml)) renderedHtmlPayload = fallbackHtml;
+                    }
+                    
+                    if (!isValidHtml(renderedHtmlPayload)) {
+                        const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'markdown', 'X-No-Cache': 'true' }
+                        });
+                        if (directMdRes.ok) {
+                            const fallbackMd = await directMdRes.text();
+                            window.__DEBUG_RAW_HTML = fallbackMd;
+                            if (isValidMd(fallbackMd)) markdownPayload = fallbackMd;
+                        }
                     }
                 }
 
                 let turns = [];
 
                 if (isValidHtml(renderedHtmlPayload)) {
-                    logDebug('Parsing HTML DOM Payload...', 'info');
+                    logDebug('Parsing Flawless HTML DOM Payload...', 'success');
                     turns = cleanScrapedGeminiMarkdown(renderedHtmlPayload, true);
                 }
 
@@ -1158,11 +1164,11 @@
                     return;
                 }
 
-                throw new Error('Gemini took too long to load (Large Chat). Click Extract again to retry!');
+                throw new Error('Could not parse Google Chat DOM. Try saving Raw HTML to debug!');
             } catch (err) {
                 logDebug('Execution Failed: ' + err.message, 'error');
                 hideStatus();
-                // We don't alert here anymore, so you can easily click the Save Raw HTML button
+                // No auto-alert, leaving you free to click [Save Raw HTML] to debug!
             }
         }
 
