@@ -1161,7 +1161,7 @@
                         const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                             headers: { 
                                 'Accept': 'text/plain', 
-                                'X-Return-Format': 'html',
+                                'X-Engine': 'browser', 'X-Respond-With': 'html', 'X-Respond-Timing': 'mutation-idle',
                                 'X-No-Cache': 'true',
                                 'X-Timeout': '60',
                                 'X-Wait-For-Selector': '.markdown'
