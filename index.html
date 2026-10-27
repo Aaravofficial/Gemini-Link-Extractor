@@ -1146,10 +1146,11 @@
                             headers: { 
                                 'Accept': 'text/plain', 
                                 'X-Return-Format': 'html',
-                                'X-No-Cache': attempt === 1 ? 'true' : 'false',
-                                'X-Wait-For-Selector': 'user-query, model-response, .query-text, message-content'
+                                'X-With-Shadow-Dom': 'true',
+                                'X-Timeout': '30'
                             }
                         });
+        
                         if (directHtmlRes.ok) {
                             const htmlText = await directHtmlRes.text();
                             LAST_RAW_PAYLOAD = htmlText;
