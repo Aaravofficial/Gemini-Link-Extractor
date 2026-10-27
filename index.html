@@ -1119,6 +1119,22 @@
                         resolvedShareUrl = data.finalUrl;
                         logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
                     }
+                    // 1. Check if Google's Direct ujx1Bf RPC returned the exact Turn Array!
+                    if (Array.isArray(data.rpcTurns) && data.rpcTurns.length > 0) {
+                        LAST_RAW_PAYLOAD = data.rawRpcDump || JSON.stringify(data.rpcTurns, null, 2);
+                        LAST_RAW_MODE = 'txt';
+                        logDebug('🚀 Direct Google RPC (ujx1Bf) Succeeded! Extracted ' + data.rpcTurns.length + ' exact turns in 1 pass!', 'success');
+                        const firstT = data.rpcTurns[0];
+                        const lastT = data.rpcTurns[data.rpcTurns.length - 1];
+                        logDebug('Turn 1 Check -> Q1: ' + firstT.question.length + ' chars | R1: ' + firstT.answer.length + ' chars', 'info');
+                        if (data.rpcTurns.length > 1) {
+                            logDebug('Turn ' + data.rpcTurns.length + ' Check -> Q' + data.rpcTurns.length + ': ' + lastT.question.length + ' chars | R' + data.rpcTurns.length + ': ' + lastT.answer.length + ' chars', 'info');
+                        }
+                        buildFormattedChatLines(data.rpcTurns);
+                        hideStatus();
+                        logDebug('Chat successfully formatted into UI engine!', 'success');
+                        return;
+                    }
                     if (isValid(data.renderedHtml)) {
                         rawPayload = data.renderedHtml;
                         LAST_RAW_MODE = 'html';
