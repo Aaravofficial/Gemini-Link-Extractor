@@ -1115,20 +1115,25 @@
 
                 if (rawRes.ok) {
                     const data = await rawRes.json();
-                    
-                    // FORCE SAVE THE EXACT RAW UNCLEANED FILE FROM GOOGLE
-                    LAST_RAW_PAYLOAD = data.renderedHtml || "Empty payload received";
-                    LAST_RAW_MODE = 'html';
-                    
-                    logDebug('✅ RAW FILE CAPTURED! Execution stopped.', 'success');
-                    logDebug('👉 Click "📥 Download Raw Payload" in the top right of this debug box now!', 'warn');
-                    hideStatus();
-                    
-                    // STOPS the script here so it NEVER falls back to Jina Markdown
-                    return; 
+                    if (data.finalUrl) {
+                        resolvedShareUrl = data.finalUrl;
+                        logDebug('Resolved Share URL : ' + resolvedShareUrl, 'info');
+                    }
+                    if (isValid(data.renderedHtml)) {
+                        rawPayload = data.renderedHtml;
+                        LAST_RAW_MODE = 'html';
+                        logDebug('Payload Mode : Rendered HTML DOM (Exact Container Boundaries)', 'success');
+                    } else if (isValid(data.markdown)) {
+                        rawPayload = data.markdown;
+                        LAST_RAW_MODE = 'md';
+                        logDebug('Payload Mode : Jina Markdown Fallback', 'warn');
+                    }
+                } else {
+                    const errText = await rawRes.text();
+                    logDebug('Vercel Error Details : ' + errText.slice(0, 220), 'error');
                 }
             } catch (vercelErr) {
-                logDebug('Vercel error: ' + vercelErr.message, 'error');
+                logDebug('Vercel proxy notice (' + vercelErr.message + '). Switching to direct browser stream...', 'warn');
             }
 
             try {
