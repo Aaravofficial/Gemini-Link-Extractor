@@ -1137,48 +1137,62 @@
             }
 
             try {
-                // Direct Fallback 1: Stream HTML DOM directly from Jina (NO X-No-Cache & NO strict selector hang!)
-                // If Vercel timed out at 10s on a huge chat, Jina's warm cache finishes right here!
-                if (!isValid(rawPayload)) {
-                    logDebug('Streaming HTML DOM directly from Jina (Warm Cache Enabled)...', 'warn');
-                    showStatus('Streaming HTML DOM Payload 🪄 .....');
-                    const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
-                        headers: { 
-                            'Accept': 'text/plain', 
-                            'X-Return-Format': 'html'
-                        }
-                    });
-                    if (directHtmlRes.ok) {
-                        const htmlText = await directHtmlRes.text();
-                        const cleanedHtml = htmlText
-                            .replace(/<head[\s\S]*?<\/head>/gi, '')
-                            .replace(/<script[\s\S]*?<\/script>/gi, '')
-                            .replace(/<style[\s\S]*?<\/style>/gi, '')
-                            .replace(/<svg[\s\S]*?<\/svg>/gi, '');
-                        if (isValid(cleanedHtml)) {
-                            rawPayload = cleanedHtml;
+                // Direct Fallback 1: Stream HTML DOM directly from Jina WITH X-Wait-For-Selector + Auto-Retry!
+                for (let attempt = 1; attempt <= 2 && !isValid(rawPayload); attempt++) {
+                    logDebug(`Streaming HTML DOM from Jina (Attempt ${attempt}/2)...`, 'warn');
+                    showStatus(attempt === 1 ? 'Streaming HTML DOM Payload 🪄 .....' : 'Large Chat: Finishing Render (Pass 2) 🪄 .....');
+                    try {
+                        const directHtmlRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
+                            headers: { 
+                                'Accept': 'text/plain', 
+                                'X-Return-Format': 'html',
+                                'X-No-Cache': attempt === 1 ? 'true' : 'false',
+                                'X-Wait-For-Selector': 'user-query, model-response, .query-text, message-content'
+                            }
+                        });
+                        if (directHtmlRes.ok) {
+                            const htmlText = await directHtmlRes.text();
+                            LAST_RAW_PAYLOAD = htmlText;
                             LAST_RAW_MODE = 'html';
-                            logDebug('Direct HTML DOM stream succeeded! (' + cleanedHtml.length.toLocaleString() + ' chars)', 'success');
+                            const cleanedHtml = htmlText
+                                .replace(/<head[\s\S]*?<\/head>/gi, '')
+                                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                                .replace(/<svg[\s\S]*?<\/svg>/gi, '');
+                            if (isValid(cleanedHtml)) {
+                                rawPayload = cleanedHtml;
+                                logDebug('Direct HTML DOM stream succeeded! (' + cleanedHtml.length.toLocaleString() + ' chars)', 'success');
+                                break;
+                            } else {
+                                logDebug(`HTML Pass ${attempt} returned ${cleanedHtml.length} chars (still loading DOM)...`, 'warn');
+                            }
                         }
+                    } catch (htmlStreamErr) {
+                        logDebug(`HTML Pass ${attempt} notice: ` + htmlStreamErr.message, 'warn');
                     }
                 }
 
-                // Direct Fallback 2: Stream Markdown directly from Jina (NO strict selector hang!)
+                // Direct Fallback 2: Stream Markdown directly from Jina WITH X-Wait-For-Selector
                 if (!isValid(rawPayload)) {
                     logDebug('Streaming Markdown directly from Jina...', 'warn');
                     showStatus('Streaming Markdown Payload 🪄 .....');
                     const directMdRes = await fetch('https://r.jina.ai/' + resolvedShareUrl, {
                         headers: { 
                             'Accept': 'text/plain', 
-                            'X-Return-Format': 'markdown'
+                            'X-Return-Format': 'markdown',
+                            'X-No-Cache': 'true',
+                            'X-Wait-For-Selector': 'user-query, model-response, .query-text'
                         }
                     });
                     if (directMdRes.ok) {
                         const fallbackText = await directMdRes.text();
+                        LAST_RAW_PAYLOAD = fallbackText;
+                        LAST_RAW_MODE = 'md';
                         if (isValid(fallbackText)) {
                             rawPayload = fallbackText;
-                            LAST_RAW_MODE = 'md';
                             logDebug('Direct Markdown stream succeeded! (' + fallbackText.length.toLocaleString() + ' chars)', 'success');
+                        } else {
+                            logDebug('Markdown returned ' + fallbackText.length + ' chars. (Click "Download Raw Payload" to inspect)', 'warn');
                         }
                     }
                 }
@@ -1211,7 +1225,6 @@
                 hideStatus();
                 alert('⚠️ Extraction timeout: ' + err.message);
             }
-        }
 
         
         //   Debugger Copy Function
