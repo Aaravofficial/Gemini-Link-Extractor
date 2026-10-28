@@ -2092,6 +2092,7 @@
         });
         
 
+        let lastDisplayedZoom = -1;
         function updateScrollMetrics() {
             rowHeight = fontSize * 1.75;
             editorContainer.style.setProperty('--v-font-size', `${fontSize.toFixed(3)}px`);
@@ -2100,10 +2101,16 @@
             if (isMassiveVirtualMode) {
                 phantom.style.height = `${Math.round(VIRTUAL_LINES.length * rowHeight)}px`;
             }
-            document.getElementById('zoom-indicator').innerText =
-                `🔍  Zoom   :   ${Math.round(fontSize)}px  |  ⚡ 240FPS Lerp Engine`;
+            
+            // Only update the DOM text if the rounded whole number actually changes (saves CPU)
+            const roundedZoom = Math.round(fontSize);
+            if (lastDisplayedZoom !== roundedZoom) {
+                lastDisplayedZoom = roundedZoom;
+                document.getElementById('zoom-indicator').innerText =
+                    `🔍  Zoom   :   ${roundedZoom}px  |  ⚡ 240FPS Lerp Engine`;
+            }
         }
-
+        
         let scrollTicking = false;
         scroller.addEventListener('scroll', () => {
             // Keep horizontal scroll locked while selection handles are being dragged
@@ -2113,7 +2120,10 @@
                 lockedScrollLeft = scroller.scrollLeft;
             }
 
-            if (!isMassiveVirtualMode) return;
+            // CRITICAL FIX: If lerpLoopId is active, the user is currently pinch-zooming.
+            // We MUST block the scroll event from rebuilding the DOM 60 times a second!
+            if (!isMassiveVirtualMode || lerpLoopId !== null) return;
+
             if (!scrollTicking) {
                 scrollTicking = true;
                 requestAnimationFrame(() => {
@@ -2123,6 +2133,7 @@
             }
         }, { passive: true });
 
+        
         function renderVisibleVirtualRows(forceRebuild = false) {
             if (!isMassiveVirtualMode) return;
 
