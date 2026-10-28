@@ -2434,11 +2434,20 @@
                     const endLine = Math.min(totalLines, i * chunkSize);
                     const wrapper = document.createElement('div');
                     wrapper.className = 'split-inputs-row';
+                    
+                    // Added onblur trigger and the hidden chars box exactly like the manual buttons
                     wrapper.innerHTML = `
-                        <input type="text" class="split-text-input input-lines" value="${startLine}-${endLine}" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )">
+                        <input type="text" class="split-text-input input-lines" value="${startLine}-${endLine}" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )" onblur="calculateSplitCharCount(this)">
                         <input type="text" class="split-text-input input-filename" value="chat_part_${i}${ext}" placeholder="🗞️   Enter  Filename   ( e.g.  part_${i}${ext} )">
+                        <div class="input-btn-combo readonly-combo split-chars-display" style="display: none; flex: 0.6; min-width: 140px; border-radius: 8px;">
+                            <input type="text" class="combo-input split-chars-val" value="0" readonly style="padding: 14px 10px;">
+                            <div class="combo-btn readonly-btn" style="padding: 14px 14px;">🔤   Chars</div>
+                        </div>
                     `;
                     container.appendChild(wrapper);
+                    
+                    // Immediately trigger the character calculation so the boxes appear instantly
+                    calculateSplitCharCount(wrapper.querySelector('.input-lines'));
                 } else {
                     const btn = document.createElement('button');
                     btn.className = 'split-file-btn';
@@ -2449,6 +2458,7 @@
             }
         }
 
+        
         function getOrdinalSuffix(i) {
             let j = i % 10, k = i % 100;
             if (j === 1 && k !== 11) return 'st';
@@ -2456,17 +2466,59 @@
             if (j === 3 && k !== 13) return 'rd';
             return 'th';
         }
+        
 
+        function calculateSplitCharCount(inputElem) {
+            const row = inputElem.closest('.split-inputs-row');
+            if (!row) return;
+
+            const displayBox = row.querySelector('.split-chars-display');
+            const valBox = row.querySelector('.split-chars-val');
+            if (!displayBox || !valBox) return;
+
+            const rawVal = inputElem.value.trim();
+            const parts = rawVal.split(/[-:to\s]+/).filter(Boolean);
+            const start = parseInt(parts[0], 10);
+            const end = parseInt(parts[1] || parts[0], 10);
+
+            // If invalid or empty, hide the character box
+            if (isNaN(start) || isNaN(end) || start < 1 || end < start) {
+                displayBox.style.display = 'none'; 
+                return;
+            }
+
+            const startIdx = Math.max(0, start - 1);
+            const endIdx = Math.min(VIRTUAL_LINES.length, end);
+            
+            let totalChars = 0;
+            for (let i = startIdx; i < endIdx; i++) {
+                if (VIRTUAL_LINES[i] && VIRTUAL_LINES[i].raw != null) {
+                    totalChars += VIRTUAL_LINES[i].raw.length;
+                }
+            }
+            // Add newline characters between the rows
+            totalChars += Math.max(0, (endIdx - startIdx) - 1);
+
+            valBox.value = totalChars.toLocaleString();
+            displayBox.style.display = 'flex'; // Reveal the box instantly!
+        }
+        
+        
         function transformButtonToInputs(buttonElement, index, ext = '.html') {
             const wrapper = document.createElement('div');
             wrapper.className = 'split-inputs-row';
             wrapper.innerHTML = `
-                <input type="text" class="split-text-input input-lines" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )">
+                <input type="text" class="split-text-input input-lines" placeholder="🪶   Enter  Line  Numbers   ( e.g.  1-500 )" onblur="calculateSplitCharCount(this)">
                 <input type="text" class="split-text-input input-filename" placeholder="🗞️   Enter  Filename   ( e.g.  chat_part_${index}${ext} )">
+                <div class="input-btn-combo readonly-combo split-chars-display" style="display: none; flex: 0.6; min-width: 140px; border-radius: 8px;">
+                    <input type="text" class="combo-input split-chars-val" value="0" readonly style="padding: 14px 10px;">
+                    <div class="combo-btn readonly-btn" style="padding: 14px 14px;">🔤   Chars</div>
+                </div>
             `;
             buttonElement.replaceWith(wrapper);
         }
 
+        
         function downloadAllSplittedFiles() {
             const inputRows = document.querySelectorAll('.split-inputs-row');
             if (inputRows.length === 0) {
